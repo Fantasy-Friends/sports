@@ -1,10 +1,16 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import SiteNav from "@/components/SiteNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Golf Majors Draft",
-  description: "Offline draft board for golf majors pool",
+  title: "The 2026 Ultimate Sports Decathlon",
+  description: "Season-long fantasy sports decathlon across every major event of 2026.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -30,7 +36,7 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-bg text-text">
-        <div className="page-shell mx-auto max-w-7xl px-4 py-6 md:px-6 lg:px-8">
+        <div className="page-shell mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6 md:px-6 lg:px-8">
           <SiteNav />
           {children}
         </div>

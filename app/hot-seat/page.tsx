@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import SiteNav from "@/components/SiteNav";
 import { getErrorMessage } from "@/lib/error";
+import { useRequireEntrant } from "@/lib/useRequireEntrant";
 
 type HotSeatRow = {
   hot_seat_id: string;
@@ -54,6 +54,11 @@ export default function HotSeatPage() {
   const [bet, setBet] = useState("");
   const [odds, setOdds] = useState<string>("400");
   const [busy, setBusy] = useState(false);
+
+  useRequireEntrant({
+    ready: !loading,
+    entrant: session?.entrant ?? null,
+  });
 
   async function load() {
     setLoading(true);
@@ -170,8 +175,7 @@ export default function HotSeatPage() {
   }, [data?.members]);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-6">
-      <SiteNav />
+    <main className="mx-auto max-w-3xl">
       <div className="mb-4">
         <div className="text-[11px] uppercase tracking-[0.28em] text-muted">
           Weekly +10 Longshot
@@ -195,7 +199,7 @@ export default function HotSeatPage() {
         </div>
       ) : !data ? null : (
         <>
-          <section className="soft-card mb-4 rounded-[1.5rem] border border-border/20 bg-surface/35 p-5">
+          <section className="soft-card mb-4 rounded-[1.5rem] border border-border/20 bg-surface/35 p-4 sm:p-5">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="text-[11px] uppercase tracking-[0.28em] text-muted">
                 Week of {data.week_start}
@@ -228,39 +232,53 @@ export default function HotSeatPage() {
             ) : null}
 
             {!data.current && isMyWeek ? (
-              <div className="mt-3 space-y-2">
-                <input
-                  value={declaration}
-                  onChange={(e) => setDeclaration(e.target.value)}
-                  placeholder="e.g. Scottie Scheffler wins Wells Fargo outright"
-                  className="glass-input w-full rounded-xl px-3 py-2 text-sm"
-                />
-                <textarea
-                  value={bet}
-                  onChange={(e) => setBet(e.target.value)}
-                  placeholder="Market, line, book (optional)"
-                  className="glass-input w-full rounded-xl px-3 py-2 text-sm"
-                  rows={2}
-                />
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted">American odds (+400 or longer)</span>
+              <form
+                className="mt-3 space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void declare();
+                }}
+              >
+                <label className="block text-xs text-muted">
+                  <span className="mb-1 block uppercase tracking-[0.18em]">Declaration</span>
+                  <input
+                    value={declaration}
+                    onChange={(e) => setDeclaration(e.target.value)}
+                    placeholder="e.g. Scottie Scheffler wins Wells Fargo outright"
+                    className="glass-input w-full rounded-xl px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs text-muted">
+                  <span className="mb-1 block uppercase tracking-[0.18em]">Bet details</span>
+                  <textarea
+                    value={bet}
+                    onChange={(e) => setBet(e.target.value)}
+                    placeholder="Market, line, book (optional)"
+                    className="glass-input w-full rounded-xl px-3 py-2 text-sm"
+                    rows={2}
+                  />
+                </label>
+                <label className="block text-xs text-muted">
+                  <span className="mb-1 block uppercase tracking-[0.18em]">
+                    American odds (+400 or longer)
+                  </span>
                   <input
                     value={odds}
                     onChange={(e) => setOdds(e.target.value)}
                     placeholder="+400"
                     type="number"
-                    className="glass-input w-28 rounded-xl px-3 py-2 text-sm"
+                    inputMode="numeric"
+                    className="glass-input w-full rounded-xl px-3 py-2 text-sm sm:max-w-[10rem]"
                   />
-                </div>
+                </label>
                 <button
-                  type="button"
-                  onClick={() => void declare()}
+                  type="submit"
                   disabled={busy}
-                  className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  className="w-full rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
                 >
                   {busy ? "Declaring…" : "Declare take"}
                 </button>
-              </div>
+              </form>
             ) : null}
 
             {canVote ? (
@@ -312,7 +330,7 @@ export default function HotSeatPage() {
           </section>
 
           {data.archive.length > 0 ? (
-            <section className="soft-card rounded-[1.5rem] border border-border/20 bg-surface/35 p-5">
+            <section className="soft-card rounded-[1.5rem] border border-border/20 bg-surface/35 p-4 sm:p-5">
               <div className="mb-3 text-[11px] uppercase tracking-[0.28em] text-muted">
                 Recent weeks
               </div>
@@ -320,17 +338,17 @@ export default function HotSeatPage() {
                 {data.archive.map((row) => (
                   <li
                     key={row.hot_seat_id}
-                    className="flex flex-col gap-1 rounded-lg bg-surface/60 p-3 md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-2 rounded-lg bg-surface/60 p-3 md:flex-row md:items-center md:justify-between"
                   >
-                    <div>
-                      <div className="font-semibold text-text">
-                        {nameById.get(row.entrant_id) ?? row.entrant_id.slice(0, 6)} · week of {row.week_start}
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold text-text">
+                        {nameById.get(row.entrant_id) ?? row.entrant_id.slice(0, 6)} &middot; week of {row.week_start}
                       </div>
                       <div className="text-xs text-muted">
                         {row.declaration_text ?? "no declaration"}
                       </div>
                     </div>
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                    <span className="inline-flex shrink-0 self-start rounded-md bg-surface/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted md:self-auto">
                       {STATUS_LABEL[row.status] ?? row.status}
                     </span>
                   </li>

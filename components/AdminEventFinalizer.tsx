@@ -14,8 +14,18 @@ type EventSummary = {
   ends_at: string | null;
 };
 
+type NotificationSummary =
+  | {
+      recipients: number;
+      email: { delivered: number; failed: number; skipped: number };
+      sms: { delivered: number; failed: number; skipped: number };
+    }
+  | { error: string }
+  | null;
+
 type FinalizeResult = {
   ok?: boolean;
+  already_final?: boolean;
   finishes?: Array<{
     entrant_id: string;
     finish_rank: number;
@@ -28,6 +38,7 @@ type FinalizeResult = {
     points: number;
     note?: string | null;
   }>;
+  notifications?: NotificationSummary;
   error?: string;
 };
 
@@ -130,6 +141,25 @@ export default function AdminEventFinalizer() {
 
       {result?.ok ? (
         <div className="mt-3 space-y-2 text-xs">
+          {result.already_final ? (
+            <div className="rounded-md border border-info/30 bg-info/10 p-2 text-info">
+              Event was already final. Finishes recomputed; no notifications re-sent.
+            </div>
+          ) : result.notifications && "error" in result.notifications ? (
+            <div className="rounded-md border border-danger/40 bg-danger/10 p-2 text-danger">
+              Notification broadcast failed: {result.notifications.error}
+            </div>
+          ) : result.notifications ? (
+            <div className="rounded-md border border-border/30 bg-surface/60 p-2 text-muted">
+              Notified {result.notifications.recipients} members
+              {result.notifications.email.delivered + result.notifications.email.failed > 0
+                ? ` · email ${result.notifications.email.delivered}/${result.notifications.email.delivered + result.notifications.email.failed}${result.notifications.email.failed > 0 ? ` (${result.notifications.email.failed} failed)` : ""}`
+                : ""}
+              {result.notifications.sms.delivered + result.notifications.sms.failed > 0
+                ? ` · SMS ${result.notifications.sms.delivered}/${result.notifications.sms.delivered + result.notifications.sms.failed}${result.notifications.sms.failed > 0 ? ` (${result.notifications.sms.failed} failed)` : ""}`
+                : ""}
+            </div>
+          ) : null}
           <div className="font-semibold text-info">Finishes written:</div>
           <ul className="space-y-1">
             {(result.finishes ?? []).map((f) => (

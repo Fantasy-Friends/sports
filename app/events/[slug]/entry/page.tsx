@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import SiteNav from "@/components/SiteNav";
 import BracketNbaForm from "@/components/events/BracketNbaForm";
 import DerbySalaryCapForm from "@/components/events/DerbySalaryCapForm";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -19,6 +18,12 @@ type BracketConfig = {
   west?: Array<{ seed: number; team: string }>;
 };
 
+function isLocked(status: string, lockAt: string | null): boolean {
+  if (status !== "open-entry" && status !== "scheduled") return true;
+  if (!lockAt) return false;
+  return new Date(lockAt).getTime() <= Date.now();
+}
+
 export default async function EventEntryPage({ params }: Props) {
   const { slug } = await params;
   const seasonId = await getCurrentSeasonId();
@@ -27,7 +32,7 @@ export default async function EventEntryPage({ params }: Props) {
   if (!event) notFound();
 
   const session = await getAuthenticatedEntrant();
-  if (!session) redirect(`/?returnTo=/events/${slug}/entry`);
+  if (!session) redirect(`/sign-in?returnTo=/events/${slug}/entry`);
 
   // Fetch my existing entry (canonical entrant_id is resolved server-side in the POST handler,
   // so here we look up by person_key for display).
@@ -65,20 +70,14 @@ export default async function EventEntryPage({ params }: Props) {
     .eq("entrant_id", canonicalId)
     .maybeSingle<{ payload: unknown; submitted_at: string | null }>();
 
-  const locked =
-    event.status !== "open-entry" && event.status !== "scheduled"
-      ? true
-      : event.lock_at
-        ? new Date(event.lock_at).getTime() <= Date.now()
-        : false;
+  const locked = isLocked(event.status, event.lock_at);
 
   const renderNbaBracket = event.event_type === "bracket-nba";
   const renderDerby = event.event_type === "horse-draft";
   const config = (event.config ?? {}) as BracketConfig;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-6">
-      <SiteNav />
+    <main className="mx-auto max-w-4xl">
       <div className="mb-4">
         <div className="text-[11px] uppercase tracking-[0.28em] text-muted">Entry</div>
         <h1 className="text-2xl font-semibold text-info">{event.name}</h1>

@@ -13,6 +13,7 @@ export type EntrantIdentity = {
   draft_position: number | null;
   is_admin: boolean;
   auto_draft_enabled: boolean | null;
+  welcomed_at: string | null;
 };
 
 type SessionRow = {
@@ -45,7 +46,9 @@ export function generateAccessCode(length = 8) {
 async function loadEntrantById(entrantId: string) {
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")
-    .select("entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled")
+    .select(
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at",
+    )
     .eq("entrant_id", entrantId)
     .maybeSingle<EntrantRow>();
 
@@ -108,7 +111,16 @@ export async function getAuthenticatedEntrant(poolId?: string) {
   }
 
   const entrant = await loadEntrantById(session.entrant_id);
-  if (!entrant) return null;
+  if (!entrant) {
+    // Entrant was deleted out from under this session (admin removed the row,
+    // pool was reseeded, etc.). Clean up the session so the cookie stops
+    // pointing at nothing and the user gets a normal signed-out experience.
+    await supabaseAdmin
+      .from("draft_sessions")
+      .delete()
+      .eq("session_id", session.session_id);
+    return null;
+  }
 
   await supabaseAdmin
     .from("draft_sessions")
@@ -124,7 +136,9 @@ export async function getAuthenticatedEntrant(poolId?: string) {
 export async function getEntrantBySlug(poolId: string, entrantSlug: string) {
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")
-    .select("entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, access_code_hash")
+    .select(
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, access_code_hash",
+    )
     .eq("pool_id", poolId)
     .eq("entrant_slug", entrantSlug)
     .maybeSingle<EntrantRow & { access_code_hash: string }>();

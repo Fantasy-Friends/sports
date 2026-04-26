@@ -1,6 +1,7 @@
-import SiteNav from "@/components/SiteNav";
+import { redirect } from "next/navigation";
 import SeasonBoard from "@/components/SeasonBoard";
 import SeasonEventGrid from "@/components/SeasonEventGrid";
+import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 
 type Props = {
   params: Promise<{ year: string }>;
@@ -10,9 +11,11 @@ export default async function SeasonPage({ params }: Props) {
   const { year } = await params;
   const yearNum = Number(year);
 
+  const session = await getAuthenticatedEntrant();
+  if (!session) redirect(`/sign-in?returnTo=/season/${year}`);
+
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6">
-      <SiteNav />
+    <main>
       <div className="mb-4">
         <div className="text-[11px] uppercase tracking-[0.28em] text-muted">The Ultimate Sports Decathlon</div>
         <h1 className="text-2xl font-semibold text-info">{yearNum} Season</h1>

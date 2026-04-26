@@ -106,11 +106,75 @@ export default function SeasonEventGrid({ year }: { year: number }) {
         const rows = tierGroups[tier];
         if (!rows || rows.length === 0) return null;
         return (
-          <section key={tier} className="soft-card rounded-[1.75rem] border border-border/20 bg-surface/35 p-5">
+          <section key={tier} className="soft-card rounded-[1.75rem] border border-border/20 bg-surface/35 p-4 sm:p-5">
             <div className="mb-3 text-[11px] uppercase tracking-[0.28em] text-muted">
               {TIER_LABEL[tier]}
             </div>
-            <div className="overflow-x-auto">
+
+            <ul className="space-y-2 lg:hidden">
+              {rows.map((ev) => {
+                const memberFinishes = members.map((m) => ({
+                  member: m,
+                  finish: finishLookup.get(`${ev.event_id}:${m.entrant_id}`) ?? null,
+                }));
+                const scored = memberFinishes.filter((row) => row.finish !== null);
+                const topPoints = scored.reduce(
+                  (max, row) => (row.finish && row.finish.awarded_points > max ? row.finish.awarded_points : max),
+                  -Infinity,
+                );
+                return (
+                  <li
+                    key={`m-${ev.event_id}`}
+                    className="rounded-[1.25rem] border border-border/20 bg-surface/60 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <Link
+                        href={`/events/${ev.slug}`}
+                        className="min-w-0 flex-1 text-sm font-semibold text-text hover:text-accent"
+                      >
+                        {ev.name}
+                      </Link>
+                      <span
+                        className={`inline-flex shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${
+                          STATUS_BADGE[ev.status] ?? "bg-surface/50 text-muted"
+                        }`}
+                      >
+                        {ev.status}
+                      </span>
+                    </div>
+                    {members.length > 0 && (
+                      <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                        {memberFinishes.map(({ member, finish }) => {
+                          const isTop =
+                            finish !== null &&
+                            topPoints !== -Infinity &&
+                            finish.awarded_points === topPoints &&
+                            topPoints > 0;
+                          return (
+                            <div
+                              key={`m-${ev.event_id}-${member.entrant_id}`}
+                              className={[
+                                "flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-xs",
+                                isTop
+                                  ? "border-accent/40 bg-accent/10"
+                                  : "border-border/20 bg-surface/30",
+                              ].join(" ")}
+                            >
+                              <span className="truncate text-muted">{member.display_name}</span>
+                              <span className="shrink-0 font-semibold tabular-nums">
+                                {finish ? finish.awarded_points.toFixed(1) : "—"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="hidden overflow-x-auto lg:block">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-[10px] uppercase tracking-[0.18em] text-muted">

@@ -122,6 +122,7 @@ export default function DerbySalaryCapForm({ slug, existing, locked }: Props) {
                     <span className="text-xs text-muted">{h.odds}</span>
                     <span className="text-xs font-semibold text-info">${h.price}</span>
                     {!locked && (
+                      <button onClick={() => toggle(h)} className="text-xs text-muted hover:text-red-500">
                       <button
                         onClick={() => toggle(h)}
                         className="text-xs text-muted hover:text-red-500"
@@ -200,6 +201,7 @@ export default function DerbySalaryCapForm({ slug, existing, locked }: Props) {
         </div>
       )}
 
+      {locked && <p className="text-sm text-muted">Entries are locked.</p>}
       {locked && (
         <p className="text-sm text-muted">Entries are locked.</p>
       )}

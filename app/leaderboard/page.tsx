@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "@/lib/error";
 import { isTournamentPollingActive, TournamentSlug, TOURNAMENTS } from "@/lib/tournaments";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
+import { useRequireEntrant } from "@/lib/useRequireEntrant";
 
 type ScoringGolfer = {
   golfer: string;
@@ -43,8 +44,8 @@ type TournamentMetaOption = {
 export default function PlayerLeaderboardPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
   const [selectedTournament, setSelectedTournament] = useState("masters");
-  const [selectedPoolId, setSelectedPoolId] = useState(`${basePoolId}-masters`);
   const [selectedEntrant, setSelectedEntrant] = useState("");
+  const [activeView, setActiveView] = useState<"standings" | "scorecard">("standings");
   const [availableTournaments, setAvailableTournaments] = useState<TournamentMetaOption[]>(
     TOURNAMENTS.map((item) => ({ tournament_slug: item.slug, label: item.label }))
   );
@@ -52,8 +53,28 @@ export default function PlayerLeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
-  const poolId = useMemo(() => selectedPoolId.trim() || `${basePoolId}-masters`, [basePoolId, selectedPoolId]);
+  useRequireEntrant({ ready: authed !== null, entrant: authed ? { is_admin: false } : null });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const res = await fetch(`/api/auth/me`, { cache: "no-store" });
+        const json = await res.json();
+        if (!cancelled) setAuthed(Boolean(json?.entrant));
+      } catch {
+        if (!cancelled) setAuthed(false);
+      }
+    }
+    void check();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const poolId = useMemo(() => `${basePoolId}-${selectedTournament}`, [basePoolId, selectedTournament]);
   const selectedTournamentMeta = availableTournaments.find(
     (item) => item.tournament_slug === selectedTournament
   );
@@ -182,17 +203,17 @@ export default function PlayerLeaderboardPage() {
   }, [poolId, selectedTournament, refreshTick]);
 
   return (
-    <main className="space-y-6">
-      <section className="soft-card rounded-[1.75rem] border bg-surface/70 px-6 py-8 backdrop-blur-xl">
-        <p className="text-xs uppercase tracking-[0.24em] text-muted">Scoring</p>
-        <h1 className="mt-2 text-3xl font-semibold">Player Leaderboard</h1>
-        <p className="mt-2 text-sm text-muted">
-          Team totals are built from each entrant&apos;s lowest 4 net golfer scores. Use the entrant toggle to inspect the full six-golfer roster.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+    <main className="space-y-5">
+      <section className="soft-card rounded-[1.75rem] border bg-surface/70 px-4 py-5 backdrop-blur-xl sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-muted">Pool scoring</p>
+            <h1 className="mt-1 text-xl font-semibold sm:text-2xl">Player Leaderboard</h1>
+          </div>
           <select
             value={selectedTournament}
             onChange={(e) => setSelectedTournament(e.target.value)}
+            aria-label="Tournament"
             className="glass-input rounded-xl px-3 py-2 text-sm"
           >
             {availableTournaments.map((tournament) => (
@@ -201,39 +222,38 @@ export default function PlayerLeaderboardPage() {
               </option>
             ))}
           </select>
-          <input
-            value={selectedPoolId}
-            onChange={(e) => setSelectedPoolId(e.target.value)}
-            placeholder="Pool ID"
-            className="glass-input rounded-xl px-3 py-2 text-sm"
-          />
-          <select
-            value={selectedEntrant}
-            onChange={(e) => setSelectedEntrant(e.target.value)}
-            disabled={rows.length === 0}
-            className="glass-input rounded-xl px-3 py-2 text-sm"
-          >
-            {rows.length === 0 ? (
-              <option value="">Select entrant</option>
-            ) : (
-              rows.map((row) => (
-                <option key={row.entrant_name} value={row.entrant_name}>
-                  {row.entrant_name}
-                </option>
-              ))
-            )}
-          </select>
-          <div className="text-xs text-muted">Pool: {poolId}</div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted">
-          <span>
-            {pollingActive
-              ? "Leaderboard refreshes automatically every 60 seconds while this tab is open."
-              : "Auto-refresh is paused outside tournament hours."}
-          </span>
-          <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
-        </div>
+        <p className="mt-3 text-xs text-muted">
+          Best four net scores per entrant &middot; {pollingActive ? "live" : "paused outside tournament hours"} &middot; updated {formatLastUpdated(lastUpdated)}
+        </p>
       </section>
+
+      <nav
+        aria-label="View"
+        className="soft-card -mx-1 overflow-x-auto rounded-[1.25rem] border border-border bg-surface/60 p-1"
+      >
+        <div className="flex min-w-max gap-1">
+          {(["standings", "scorecard"] as const).map((view) => {
+            const active = activeView === view;
+            return (
+              <button
+                key={view}
+                type="button"
+                onClick={() => setActiveView(view)}
+                aria-current={active ? "page" : undefined}
+                className={[
+                  "whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold capitalize transition-colors",
+                  active
+                    ? "bg-accent text-white shadow-[0_10px_24px_rgba(99,91,255,0.22)]"
+                    : "text-muted hover:bg-surface/80 hover:text-text",
+                ].join(" ")}
+              >
+                {view}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
       {loading && (
         <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4 text-sm text-muted backdrop-blur-xl">
@@ -255,17 +275,56 @@ export default function PlayerLeaderboardPage() {
 
       {!loading && !error && rows.length > 0 && (
         <>
+          {activeView === "standings" && (
           <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4 backdrop-blur-xl">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold">Standings</h2>
                 <div className="mt-1 text-xs text-muted">
-                  Ranked by current best four net scores, with 5th and 6th golfer as the tiebreakers.
+                  Tap an entrant to see their full scorecard.
                 </div>
               </div>
             </div>
 
-            <div className="soft-subtle mt-4 overflow-auto rounded-[1.25rem] border">
+            <ul className="mt-4 space-y-2 md:hidden">
+              {rows.map((row, index) => {
+                const selected = selectedEntrantRow?.entrant_name === row.entrant_name;
+                return (
+                  <li key={`m-${row.entrant_name}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedEntrant(row.entrant_name);
+                        setActiveView("scorecard");
+                      }}
+                      aria-pressed={selected}
+                      className={[
+                        "soft-subtle flex w-full items-center justify-between gap-3 rounded-[1.25rem] border px-3 py-3 text-left transition-colors",
+                        selected ? "border-accent/40 bg-accent/10" : "hover:bg-surface/60",
+                      ].join(" ")}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface/70 text-sm font-semibold text-muted">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">{row.entrant_name}</div>
+                          <div className="text-xs text-muted">
+                            TB 5th {row.tie_break_5_position ?? "-"} &middot; 6th {row.tie_break_6_position ?? "-"}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-lg font-semibold">{formatToPar(teamToPar(row))}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted">Team</div>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="soft-subtle mt-4 hidden overflow-auto rounded-[1.25rem] border md:block">
               <table className="w-full min-w-[720px] text-sm">
                 <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">
                   <tr>
@@ -288,7 +347,10 @@ export default function PlayerLeaderboardPage() {
                         <td className="px-3 py-3">
                           <button
                             type="button"
-                            onClick={() => setSelectedEntrant(row.entrant_name)}
+                            onClick={() => {
+                        setSelectedEntrant(row.entrant_name);
+                        setActiveView("scorecard");
+                      }}
                             className="font-medium underline-offset-4 hover:underline"
                           >
                             {row.entrant_name}
@@ -304,14 +366,27 @@ export default function PlayerLeaderboardPage() {
               </table>
             </div>
           </section>
+          )}
 
-          {selectedEntrantRow && (
+          {activeView === "scorecard" && (
+            selectedEntrantRow ? (
             <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4 backdrop-blur-xl">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold">{selectedEntrantRow.entrant_name} Scorecard</h2>
-                  <div className="mt-1 text-xs text-muted">
-                    Best four count toward the team total. Bench golfers remain available for tiebreaking.
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                    <span>Best four count toward the team total. Bench holds tiebreakers.</span>
+                    <select
+                      value={selectedEntrant}
+                      onChange={(e) => setSelectedEntrant(e.target.value)}
+                      className="glass-input rounded-md px-2 py-1 text-xs"
+                    >
+                      {rows.map((row) => (
+                        <option key={row.entrant_name} value={row.entrant_name}>
+                          {row.entrant_name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="text-right">
@@ -381,6 +456,11 @@ export default function PlayerLeaderboardPage() {
                 </div>
               </div>
             </section>
+            ) : (
+              <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-6 text-center text-sm text-muted backdrop-blur-xl">
+                Tap an entrant in the Standings tab to see their scorecard here.
+              </section>
+            )
           )}
         </>
       )}

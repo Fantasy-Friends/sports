@@ -1,0 +1,88 @@
+{
+  "pool_id": "2026-majors-masters",
+  "tournament_slug": "masters",
+  "season_year": 2026,
+  "event_slug": "2026-masters",
+  "source": "commissioner-provided draft summary (imported 2026-04-21)",
+  "notes": [
+    "Canonical record of the 2026 Masters pool draft. 9 entrants, 6 picks each, snake-draft inferred from pick order.",
+    "Entrant draft_position values reflect the order the commissioner provided the summary in. Confirm before relying on first-round odds analysis.",
+    "handicap values are null here because the commissioner-provided summary did not include them. Run /admin Odds + Handicap Sync to populate golfers.handicap from The Odds API.",
+    "Golfer names are preserved verbatim from the commissioner's summary. Live data feeds (Slash Golf) may normalize differently — see lib/slashGolf.ts transliterate logic for cases like Højgaard/Hojgaard, MacIntyre/Macintyre."
+  ],
+  "entrants": [
+    { "draft_position": 1, "entrant_name": "Chris",  "entrant_slug": "chris" },
+    { "draft_position": 2, "entrant_name": "Vobe",   "entrant_slug": "vobe" },
+    { "draft_position": 3, "entrant_name": "Dusty",  "entrant_slug": "dusty" },
+    { "draft_position": 4, "entrant_name": "Thom",   "entrant_slug": "thom" },
+    { "draft_position": 5, "entrant_name": "Dan",    "entrant_slug": "dan" },
+    { "draft_position": 6, "entrant_name": "Cody",   "entrant_slug": "cody" },
+    { "draft_position": 7, "entrant_name": "Wes",    "entrant_slug": "wes" },
+    { "draft_position": 8, "entrant_name": "Rod",    "entrant_slug": "rod" },
+    { "draft_position": 9, "entrant_name": "Nate",   "entrant_slug": "nate" }
+  ],
+  "picks": [
+    { "entrant_slug": "chris", "pick_number": 1, "golfer": "Scottie Scheffler" },
+    { "entrant_slug": "chris", "pick_number": 2, "golfer": "Viktor Hovland" },
+    { "entrant_slug": "chris", "pick_number": 3, "golfer": "Patrick Reed" },
+    { "entrant_slug": "chris", "pick_number": 4, "golfer": "Sungjae Im" },
+    { "entrant_slug": "chris", "pick_number": 5, "golfer": "Sepp Straka" },
+    { "entrant_slug": "chris", "pick_number": 6, "golfer": "Dustin Johnson" },
+
+    { "entrant_slug": "vobe",  "pick_number": 1, "golfer": "Bryson DeChambeau" },
+    { "entrant_slug": "vobe",  "pick_number": 2, "golfer": "Christopher Gotterup" },
+    { "entrant_slug": "vobe",  "pick_number": 3, "golfer": "Adam Scott" },
+    { "entrant_slug": "vobe",  "pick_number": 4, "golfer": "Russell Henley" },
+    { "entrant_slug": "vobe",  "pick_number": 5, "golfer": "Brian Harman" },
+    { "entrant_slug": "vobe",  "pick_number": 6, "golfer": "Alexander Noren" },
+
+    { "entrant_slug": "dusty", "pick_number": 1, "golfer": "Rory McIlroy" },
+    { "entrant_slug": "dusty", "pick_number": 2, "golfer": "Jordan Spieth" },
+    { "entrant_slug": "dusty", "pick_number": 3, "golfer": "Shane Lowry" },
+    { "entrant_slug": "dusty", "pick_number": 4, "golfer": "Cameron Smith" },
+    { "entrant_slug": "dusty", "pick_number": 5, "golfer": "Daniel Berger" },
+    { "entrant_slug": "dusty", "pick_number": 6, "golfer": "Ryan Fox" },
+
+    { "entrant_slug": "thom",  "pick_number": 1, "golfer": "Jon Rahm" },
+    { "entrant_slug": "thom",  "pick_number": 2, "golfer": "Min Woo Lee" },
+    { "entrant_slug": "thom",  "pick_number": 3, "golfer": "Tyrrell Hatton" },
+    { "entrant_slug": "thom",  "pick_number": 4, "golfer": "J. J. Spaun" },
+    { "entrant_slug": "thom",  "pick_number": 5, "golfer": "Keegan Bradley" },
+    { "entrant_slug": "thom",  "pick_number": 6, "golfer": "Sergio Garcia" },
+
+    { "entrant_slug": "dan",   "pick_number": 1, "golfer": "Xander Schauffele" },
+    { "entrant_slug": "dan",   "pick_number": 2, "golfer": "Hideki Matsuyama" },
+    { "entrant_slug": "dan",   "pick_number": 3, "golfer": "Si Woo Kim" },
+    { "entrant_slug": "dan",   "pick_number": 4, "golfer": "Nicolai Hojgaard" },
+    { "entrant_slug": "dan",   "pick_number": 5, "golfer": "Max Homa" },
+    { "entrant_slug": "dan",   "pick_number": 6, "golfer": "Rasmus Hojgaard" },
+
+    { "entrant_slug": "cody",  "pick_number": 1, "golfer": "Tommy Fleetwood" },
+    { "entrant_slug": "cody",  "pick_number": 2, "golfer": "Robert Macintyre" },
+    { "entrant_slug": "cody",  "pick_number": 3, "golfer": "Corey Conners" },
+    { "entrant_slug": "cody",  "pick_number": 4, "golfer": "Jason Day" },
+    { "entrant_slug": "cody",  "pick_number": 5, "golfer": "Harris English" },
+    { "entrant_slug": "cody",  "pick_number": 6, "golfer": "Kurt Kitayama" },
+
+    { "entrant_slug": "wes",   "pick_number": 1, "golfer": "Ludvig Aberg" },
+    { "entrant_slug": "wes",   "pick_number": 2, "golfer": "Collin Morikawa" },
+    { "entrant_slug": "wes",   "pick_number": 3, "golfer": "Akshay Bhatia" },
+    { "entrant_slug": "wes",   "pick_number": 4, "golfer": "Justin Thomas" },
+    { "entrant_slug": "wes",   "pick_number": 5, "golfer": "Sam Burns" },
+    { "entrant_slug": "wes",   "pick_number": 6, "golfer": "Jake Knapp" },
+
+    { "entrant_slug": "rod",   "pick_number": 1, "golfer": "Cameron Young" },
+    { "entrant_slug": "rod",   "pick_number": 2, "golfer": "Matthew Fitzpatrick" },
+    { "entrant_slug": "rod",   "pick_number": 3, "golfer": "Patrick Cantlay" },
+    { "entrant_slug": "rod",   "pick_number": 4, "golfer": "Jacob Bridgeman" },
+    { "entrant_slug": "rod",   "pick_number": 5, "golfer": "Ben Griffin" },
+    { "entrant_slug": "rod",   "pick_number": 6, "golfer": "Aaron Rai" },
+
+    { "entrant_slug": "nate",  "pick_number": 1, "golfer": "Justin Rose" },
+    { "entrant_slug": "nate",  "pick_number": 2, "golfer": "Brooks Koepka" },
+    { "entrant_slug": "nate",  "pick_number": 3, "golfer": "Gary Woodland" },
+    { "entrant_slug": "nate",  "pick_number": 4, "golfer": "Maverick Mcnealy" },
+    { "entrant_slug": "nate",  "pick_number": 5, "golfer": "Casey Jarvis" },
+    { "entrant_slug": "nate",  "pick_number": 6, "golfer": "Michael Kim" }
+  ]
+}

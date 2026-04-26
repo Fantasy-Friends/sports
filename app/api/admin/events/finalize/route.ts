@@ -4,7 +4,11 @@ import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getEventBySlug, getCurrentSeasonId } from "@/lib/events/resolve";
 import { getEventHandler } from "@/lib/events/registry";
 import { getErrorMessage } from "@/lib/error";
-import { getBaseUrl, sendNotificationToAllMembers } from "@/lib/notifications/send";
+import {
+  type BroadcastSummary,
+  getBaseUrl,
+  sendNotificationToAllMembers,
+} from "@/lib/notifications/send";
 import { renderEventFinal } from "@/lib/notifications/templates";
 import { smsEventFinal } from "@/lib/notifications/smsTemplates";
 
@@ -28,6 +32,8 @@ export async function POST(request: NextRequest) {
     if (!event) return NextResponse.json({ error: "event not found" }, { status: 404 });
 
     const handler = getEventHandler(event);
+
+    const wasAlreadyFinal = event.status === "final";
 
     const { data: entries } = await supabaseAdmin
       .from("event_entries")
@@ -104,8 +110,18 @@ export async function POST(request: NextRequest) {
       .eq("event_id", event.event_id);
     if (updErr) throw new Error(updErr.message);
 
-    // Fire event_final notification. Non-blocking — any send failure is logged
-    // via notification_log in sendNotification.
+    // Fire event_final notification only on the first finalization. Re-running
+    // finalize (to recompute after a data fix, etc.) should not re-broadcast.
+    if (wasAlreadyFinal) {
+      return NextResponse.json({
+        ok: true,
+        already_final: true,
+        finishes: finishRows,
+        bonuses,
+      });
+    }
+
+    let notifications: BroadcastSummary | { error: string } | null = null;
     try {
       const { data: members } = await supabaseAdmin
         .from("season_members")
@@ -127,20 +143,23 @@ export async function POST(request: NextRequest) {
       const sms = podium[0]
         ? smsEventFinal({ name: event.name }, podium[0].display_name, podium[0].awarded_points, getBaseUrl())
         : undefined;
-      await sendNotificationToAllMembers({
+      notifications = await sendNotificationToAllMembers({
         seasonId,
         kind: "event_final",
         email,
         sms,
       });
     } catch (notifErr) {
-      console.warn("event_final notification failed:", notifErr);
+      const message = notifErr instanceof Error ? notifErr.message : String(notifErr);
+      console.warn("event_final notification failed:", message);
+      notifications = { error: message };
     }
 
     return NextResponse.json({
       ok: true,
       finishes: finishRows,
       bonuses: bonuses,
+      notifications,
     });
   } catch (err) {
     return NextResponse.json(

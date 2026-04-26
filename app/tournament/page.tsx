@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "@/lib/error";
 import { isTournamentPollingActive, TournamentSlug, TOURNAMENTS } from "@/lib/tournaments";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
+import { useRequireEntrant } from "@/lib/useRequireEntrant";
 
 type TournamentRow = {
   golfer: string;
@@ -34,7 +35,6 @@ type TournamentMetaOption = {
 export default function TournamentLeaderboardPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
   const [selectedTournament, setSelectedTournament] = useState("masters");
-  const [selectedPoolId, setSelectedPoolId] = useState(`${basePoolId}-masters`);
   const [availableTournaments, setAvailableTournaments] = useState<TournamentMetaOption[]>(
     TOURNAMENTS.map((item) => ({ tournament_slug: item.slug, label: item.label }))
   );
@@ -42,8 +42,28 @@ export default function TournamentLeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
-  const poolId = useMemo(() => selectedPoolId.trim() || `${basePoolId}-masters`, [basePoolId, selectedPoolId]);
+  useRequireEntrant({ ready: authed !== null, entrant: authed ? { is_admin: false } : null });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const res = await fetch(`/api/auth/me`, { cache: "no-store" });
+        const json = await res.json();
+        if (!cancelled) setAuthed(Boolean(json?.entrant));
+      } catch {
+        if (!cancelled) setAuthed(false);
+      }
+    }
+    void check();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const poolId = useMemo(() => `${basePoolId}-${selectedTournament}`, [basePoolId, selectedTournament]);
 
   const selectedTournamentMeta = availableTournaments.find(
     (item) => item.tournament_slug === selectedTournament
@@ -127,16 +147,16 @@ export default function TournamentLeaderboardPage() {
 
   return (
     <main className="space-y-6">
-      <section className="soft-card rounded-[1.75rem] border bg-surface/70 px-6 py-8 backdrop-blur-xl">
-        <p className="text-xs uppercase tracking-[0.24em] text-muted">Scoring</p>
-        <h1 className="mt-2 text-3xl font-semibold">Tournament Leaderboard</h1>
-        <p className="mt-2 text-sm text-muted">
-          Real tournament leaderboard view with raw strokes, score to par, round-by-round scoring, and ownership.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+      <section className="soft-card rounded-[1.75rem] border bg-surface/70 px-4 py-5 backdrop-blur-xl sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-muted">Live tournament</p>
+            <h1 className="mt-1 text-xl font-semibold sm:text-2xl">Tournament Leaderboard</h1>
+          </div>
           <select
             value={selectedTournament}
             onChange={(e) => setSelectedTournament(e.target.value)}
+            aria-label="Tournament"
             className="glass-input rounded-xl px-3 py-2 text-sm"
           >
             {availableTournaments.map((tournament) => (
@@ -145,22 +165,10 @@ export default function TournamentLeaderboardPage() {
               </option>
             ))}
           </select>
-          <input
-            value={selectedPoolId}
-            onChange={(e) => setSelectedPoolId(e.target.value)}
-            placeholder="Pool ID"
-            className="glass-input rounded-xl px-3 py-2 text-sm"
-          />
-          <div className="text-xs text-muted">Pool: {poolId}</div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted">
-          <span>
-            {pollingActive
-              ? "Tournament scores refresh automatically every 60 seconds while this tab is open."
-              : "Auto-refresh is paused outside tournament hours."}
-          </span>
-          <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
-        </div>
+        <p className="mt-3 text-xs text-muted">
+          Raw strokes and score to par, round by round &middot; {pollingActive ? "live" : "paused outside tournament hours"} &middot; updated {formatLastUpdated(lastUpdated)}
+        </p>
       </section>
 
       {loading && (
@@ -182,8 +190,59 @@ export default function TournamentLeaderboardPage() {
       )}
 
       {!loading && !error && rows.length > 0 && (
-        <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4 backdrop-blur-xl">
-          <div className="soft-subtle overflow-auto rounded-[1.25rem] border">
+        <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-3 backdrop-blur-xl sm:p-4">
+          <ul className="space-y-2 md:hidden">
+            {rows.map((row) => (
+              <li
+                key={row.golfer}
+                className="soft-subtle rounded-[1.25rem] border px-3 py-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex min-w-[2rem] justify-center rounded-md bg-surface/60 px-1.5 py-0.5 text-xs font-semibold text-muted">
+                        {row.position_text ?? row.position ?? "-"}
+                      </span>
+                      <div className="truncate text-sm font-semibold">{row.golfer}</div>
+                    </div>
+                    <div className="mt-1 text-xs text-muted">
+                      Rank {row.rank ?? "-"} &middot; {row.gross_total ?? "-"} strokes
+                      {row.live_thru ? ` · Thru ${row.live_thru}` : ""}
+                      {typeof row.live_current_round_score === "number"
+                        ? ` · Rnd ${row.live_current_round_score > 0 ? `+${row.live_current_round_score}` : row.live_current_round_score}`
+                        : ""}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-lg font-semibold">{formatToPar(row)}</div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted">To Par</div>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-4 gap-1.5">
+                  {[1, 2, 3, 4].map((roundNumber) => {
+                    const round = row.rounds.find((entry) => entry.round_number === roundNumber) ?? null;
+                    return (
+                      <div
+                        key={`${row.golfer}-m-${roundNumber}`}
+                        className="rounded-lg border border-border/30 bg-surface/40 px-2 py-1.5 text-center"
+                      >
+                        <div className="text-[10px] uppercase tracking-wide text-muted">R{roundNumber}</div>
+                        <div className="text-sm font-semibold">{round?.strokes ?? "-"}</div>
+                        {round?.score_status ? (
+                          <div className="text-[9px] uppercase text-muted">{round.score_status}</div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 text-xs text-muted">
+                  {row.drafted_by.length > 0 ? `Drafted by ${row.drafted_by.join(", ")}` : "Undrafted"}
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="soft-subtle hidden overflow-auto rounded-[1.25rem] border md:block">
             <table className="w-full min-w-[980px] text-sm">
               <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">
                 <tr>

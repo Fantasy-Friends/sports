@@ -3,7 +3,6 @@ import { awardPointsFromScores } from "@/lib/scoring/awardPoints";
 import type {
   EntryValidation,
   EventEntry,
-  EventRow,
   EventTypeHandler,
   FinishRanking,
 } from "./types";

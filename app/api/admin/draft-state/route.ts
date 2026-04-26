@@ -3,7 +3,11 @@ import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { advanceDraftState, buildDraftState, EXPECTED_ENTRANT_COUNT, syncDraftState } from "@/lib/draftOrder";
 import { getErrorMessage } from "@/lib/error";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getBaseUrl, sendNotificationToAllMembers } from "@/lib/notifications/send";
+import {
+  type BroadcastSummary,
+  getBaseUrl,
+  sendNotificationToAllMembers,
+} from "@/lib/notifications/send";
 import { renderDraftOpens } from "@/lib/notifications/templates";
 import { smsDraftOpens } from "@/lib/notifications/smsTemplates";
 import { getCurrentSeasonId } from "@/lib/events/resolve";
@@ -112,6 +116,7 @@ export async function POST(req: Request) {
       };
     }
 
+    let notifications: BroadcastSummary | { error: string } | null = null;
     if (draftOpen) {
       try {
         const seasonId = await getCurrentSeasonId();
@@ -125,11 +130,18 @@ export async function POST(req: Request) {
           if (event) {
             const email = renderDraftOpens({ name: event.name, slug: event.slug }, getBaseUrl());
             const sms = smsDraftOpens({ name: event.name }, getBaseUrl());
-            await sendNotificationToAllMembers({ seasonId, kind: "draft_opens", email, sms });
+            notifications = await sendNotificationToAllMembers({
+              seasonId,
+              kind: "draft_opens",
+              email,
+              sms,
+            });
           }
         }
       } catch (notifErr) {
-        console.warn("draft_opens notification failed:", notifErr);
+        const message = notifErr instanceof Error ? notifErr.message : String(notifErr);
+        console.warn("draft_opens notification failed:", message);
+        notifications = { error: message };
       }
     }
 
@@ -150,6 +162,7 @@ export async function POST(req: Request) {
       is_complete: summary.is_complete,
       turn_started_at: draftOpen ? summary.turn_started_at : null,
       turn_expires_at: draftOpen ? summary.turn_expires_at : null,
+      notifications,
     });
   } catch (error: unknown) {
     return NextResponse.json(

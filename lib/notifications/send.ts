@@ -129,32 +129,63 @@ export async function sendNotification(args: {
   return result;
 }
 
+export type BroadcastSummary = {
+  recipients: number;
+  email: { delivered: number; failed: number; skipped: number };
+  sms: { delivered: number; failed: number; skipped: number };
+};
+
+function tallyChannel(result: SendChannelResult, summary: BroadcastSummary["email"]) {
+  if ("ok" in result && result.ok) summary.delivered += 1;
+  else if ("ok" in result && !result.ok) summary.failed += 1;
+  else summary.skipped += 1;
+}
+
 export async function sendNotificationToAllMembers(args: {
   seasonId: string;
   kind: NotificationKind;
   email?: RenderedEmail;
   sms?: RenderedSms;
   excludeEntrantIds?: string[];
-}) {
+}): Promise<BroadcastSummary> {
   const { data } = await supabaseAdmin
     .from("season_members")
     .select("entrant_id")
     .eq("season_id", args.seasonId);
 
   const excluded = new Set(args.excludeEntrantIds ?? []);
-  const tasks: Array<Promise<unknown>> = [];
-  for (const row of data ?? []) {
-    if (excluded.has(row.entrant_id)) continue;
-    tasks.push(
+  const recipients = (data ?? []).filter((row) => !excluded.has(row.entrant_id));
+
+  const summary: BroadcastSummary = {
+    recipients: recipients.length,
+    email: { delivered: 0, failed: 0, skipped: 0 },
+    sms: { delivered: 0, failed: 0, skipped: 0 },
+  };
+
+  const settled = await Promise.allSettled(
+    recipients.map((row) =>
       sendNotification({
         entrantId: row.entrant_id,
         kind: args.kind,
         email: args.email,
         sms: args.sms,
       }),
-    );
+    ),
+  );
+
+  for (const entry of settled) {
+    if (entry.status !== "fulfilled") {
+      // sendNotification catches its own errors, so a rejected promise here is
+      // an unexpected bug — count it as a failure on both channels we attempted.
+      if (args.email) summary.email.failed += 1;
+      if (args.sms) summary.sms.failed += 1;
+      continue;
+    }
+    if (args.email) tallyChannel(entry.value.email, summary.email);
+    if (args.sms) tallyChannel(entry.value.sms, summary.sms);
   }
-  await Promise.allSettled(tasks);
+
+  return summary;
 }
 
 export function getBaseUrl() {

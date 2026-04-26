@@ -3,6 +3,11 @@ import { getErrorMessage } from "@/lib/error";
 import { isDraftWindowOpen } from "@/lib/draftOrder";
 import { supabaseAdmin } from "@/lib/supabase";
 
+// draft_open flips during live draft management — stale reads would let a
+// locked draft still accept picks on someone's cached view. Always fetch fresh.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type TournamentMetaRow = {
   tournament_slug: string;
   round_count: number | null;
@@ -45,7 +50,10 @@ export async function GET(req: Request) {
       draft_active_now: (row.draft_open ?? false) && isDraftWindowOpen(),
     }));
 
-    return NextResponse.json({ ok: true, poolId, rows });
+    return NextResponse.json(
+      { ok: true, poolId, rows },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
   } catch (error: unknown) {
     return NextResponse.json(
       { error: getErrorMessage(error, "Failed to load tournament metadata.") },

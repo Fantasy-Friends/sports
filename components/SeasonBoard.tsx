@@ -98,8 +98,8 @@ export default function SeasonBoard({ year, compact = false }: Props) {
             <tr className="text-left text-[11px] uppercase tracking-[0.22em] text-muted">
               <th className="px-2 py-2 font-medium">#</th>
               <th className="px-2 py-2 font-medium">Player</th>
-              <th className="px-2 py-2 text-right font-medium">Events</th>
-              <th className="px-2 py-2 text-right font-medium">Bonus</th>
+              <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Events</th>
+              <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Bonus</th>
               <th className="px-2 py-2 text-right font-medium">Total</th>
             </tr>
           </thead>
@@ -117,12 +117,17 @@ export default function SeasonBoard({ year, compact = false }: Props) {
                   className="border-t border-border/15 text-text"
                 >
                   <td className="px-2 py-2 font-semibold text-muted">{idx + 1}</td>
-                  <td className="px-2 py-2 font-semibold">{row.display_name}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">
+                  <td className="px-2 py-2">
+                    <div className="font-semibold">{row.display_name}</div>
+                    <div className="mt-0.5 text-[11px] text-muted sm:hidden">
+                      Events {row.event_points.toFixed(1)} ({row.events_scored}) · Bonus {row.bonus_points.toFixed(1)} ({row.bonuses_earned})
+                    </div>
+                  </td>
+                  <td className="hidden px-2 py-2 text-right tabular-nums sm:table-cell">
                     {row.event_points.toFixed(1)}
                     <span className="ml-1 text-[11px] text-muted">({row.events_scored})</span>
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums">
+                  <td className="hidden px-2 py-2 text-right tabular-nums sm:table-cell">
                     {row.bonus_points.toFixed(1)}
                     <span className="ml-1 text-[11px] text-muted">({row.bonuses_earned})</span>
                   </td>

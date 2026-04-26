@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage } from "@/lib/error";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
+import { useRequireEntrant } from "@/lib/useRequireEntrant";
 
 type Golfer = {
   id: string;
@@ -111,12 +112,14 @@ function DraftPageContent() {
   const [clockTick, setClockTick] = useState(0);
 
   const [entrants, setEntrants] = useState<Entrant[]>([]);
-  const [entrantsLoading, setEntrantsLoading] = useState(true);
   const [entrantsError, setEntrantsError] = useState<string | null>(null);
 
   const [sessionEntrant, setSessionEntrant] = useState<Entrant | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [togglingAutoDraft, setTogglingAutoDraft] = useState(false);
+
+  useRequireEntrant({ ready: !sessionLoading, entrant: sessionEntrant });
 
   const [golfers, setGolfers] = useState<Golfer[]>(FALLBACK_GOLFERS);
   const [loadingGolfers, setLoadingGolfers] = useState(true);
@@ -184,7 +187,6 @@ function DraftPageContent() {
     let cancelled = false;
 
     async function loadEntrants() {
-      setEntrantsLoading(true);
       setEntrantsError(null);
       try {
         const res = await fetch(`/api/entrants?pool_id=${encodeURIComponent(poolId)}`, { cache: "no-store" });
@@ -196,13 +198,12 @@ function DraftPageContent() {
           setEntrants([]);
           setEntrantsError(getErrorMessage(e, "Failed to load entrants"));
         }
-      } finally {
-        if (!cancelled) setEntrantsLoading(false);
       }
     }
 
     async function loadSession() {
       setAuthError(null);
+      setSessionLoading(true);
       try {
         const res = await fetch(`/api/auth/me?pool_id=${encodeURIComponent(poolId)}`, { cache: "no-store" });
         const json = await res.json();
@@ -213,6 +214,8 @@ function DraftPageContent() {
           setSessionEntrant(null);
           setAuthError(getErrorMessage(e, "Failed to load entrant session"));
         }
+      } finally {
+        if (!cancelled) setSessionLoading(false);
       }
     }
 
@@ -303,10 +306,6 @@ function DraftPageContent() {
     });
   }, [golfers, pickedGolferIds, query]);
 
-  const availableGolferCount = useMemo(
-    () => golfers.filter((golfer) => !pickedGolferIds.has(golfer.golfer)).length,
-    [golfers, pickedGolferIds]
-  );
   const timeRemaining = useMemo(() => {
     void clockTick;
     if (!draftState?.turn_expires_at) return null;
@@ -333,6 +332,7 @@ function DraftPageContent() {
     setAuthError(null);
     await fetch("/api/auth/logout", { method: "POST" });
     setSessionEntrant(null);
+    window.location.href = "/sign-in";
   }
 
   async function toggleAutoDraft() {
@@ -397,30 +397,6 @@ function DraftPageContent() {
     }
   }
 
-  async function removePick(golfer: string) {
-    if (!sessionEntrant) return;
-
-    setSavingPicks(true);
-    setPicksError(null);
-    try {
-      const res = await fetch("/api/draft-picks/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pool_id: poolId,
-          golfer,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to remove pick");
-      await reloadPicks();
-    } catch (e: unknown) {
-      setPicksError(getErrorMessage(e, "Failed to remove pick"));
-    } finally {
-      setSavingPicks(false);
-    }
-  }
-
   async function clearDraftBoard() {
     if (!sessionEntrant?.is_admin) return;
 
@@ -442,203 +418,141 @@ function DraftPageContent() {
     }
   }
 
+  const topBannerError = picksError ?? authError ?? entrantsError ?? null;
+
   return (
     <main className="space-y-6">
-      <section className="relative overflow-hidden rounded-3xl border border-border bg-surface px-6 py-8">
-        <div className="pointer-events-none absolute -top-24 right-0 h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(34,197,94,0.22),transparent_70%)]" />
-        <p className="text-xs uppercase tracking-[0.24em] text-muted">Draft Room</p>
-        <h1 className="mt-2 text-3xl font-semibold">Majors Draft Board</h1>
-        <p className="mt-2 text-sm text-muted">
-          Make picks here after signing in from the home page. Each entrant gets 6 golfers and every golfer can only be drafted once.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <select
-            value={selectedTournament}
-            onChange={(e) => setSelectedTournament(e.target.value as TournamentOption["slug"])}
-            className="rounded-lg border border-border bg-bg px-3 py-2 text-sm"
+      {topBannerError ? (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-2xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">Something went wrong.</div>
+            <div className="mt-0.5 break-words text-xs">{topBannerError}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPicksError(null);
+              setAuthError(null);
+              setEntrantsError(null);
+            }}
+            className="shrink-0 rounded-lg border border-danger/30 px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/10"
+            aria-label="Dismiss error"
           >
-            {TOURNAMENTS.map((tournament) => (
-              <option key={tournament.slug} value={tournament.slug}>
-                {tournament.label}
-              </option>
-            ))}
-          </select>
-          <div className="text-xs text-muted">Pool: {poolId}</div>
+            Dismiss
+          </button>
         </div>
-        {sessionEntrant ? (
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
-            <span className="rounded-full border border-border bg-bg px-3 py-1 text-text">
-              Signed in as <span className="font-semibold">{sessionEntrant.entrant_name}</span>
-            </span>
-            {sessionEntrant.is_admin && (
-              <span className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-accent">
+      ) : null}
+
+      <section className="soft-card rounded-[1.75rem] border bg-surface px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-muted">
+              {TOURNAMENTS.find((t) => t.slug === selectedTournament)?.label ?? "Draft Room"} &middot; Draft Room
+            </p>
+            <h1 className="mt-1 text-xl font-semibold sm:text-2xl">
+              {draftState?.is_complete
+                ? "Draft complete"
+                : isOnClock
+                  ? "You're on the clock"
+                  : draftState?.current_entrant_name
+                    ? `${draftState.current_entrant_name} is on the clock`
+                    : "Waiting for draft to open"}
+            </h1>
+            <p className="mt-1 text-xs text-muted">
+              {draftState?.current_pick
+                ? `Pick ${draftState.current_pick} of ${draftState.max_picks ?? 54} · Round ${draftState.current_round ?? "-"}`
+                : !draftOpen
+                  ? "Draft is paused · opens 9AM–9PM Pacific when the commissioner unlocks it"
+                  : "Ready for the first pick"}
+              {!draftState?.is_complete && draftOpen && timeRemaining !== null
+                ? ` · ${formatCountdown(timeRemaining)} on clock`
+                : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.18em]">
+            {!draftOpen && (
+              <span className="rounded-md bg-surface/70 px-2 py-1 font-semibold text-muted">
+                Paused
+              </span>
+            )}
+            {isOnClock && draftOpen && !draftState?.is_complete && (
+              <span className="rounded-md bg-accent px-2 py-1 font-semibold text-white">
+                Your turn
+              </span>
+            )}
+            {sessionEntrant?.is_admin && (
+              <span className="rounded-md border border-accent/40 bg-accent/10 px-2 py-1 font-semibold text-accent">
                 Admin
               </span>
             )}
-            <button type="button" onClick={() => void handleLogout()} className="text-muted underline">
+          </div>
+        </div>
+
+        {sessionEntrant && (
+          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border/20 pt-4 text-sm">
+            <span className="text-muted">You</span>
+            <span className="font-semibold">{sessionEntrant.entrant_name}</span>
+            <span className="text-muted">&middot;</span>
+            <span>
+              <span className="font-semibold">{activePicks.length}</span>
+              <span className="text-muted"> / {MAX_PICKS_PER_ENTRANT} picks</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => void toggleAutoDraft()}
+              disabled={togglingAutoDraft || savingPicks}
+              className={[
+                "rounded-md px-2 py-1 text-xs font-semibold transition-colors disabled:opacity-50",
+                sessionEntrant.auto_draft_enabled
+                  ? "bg-accent/15 text-accent hover:bg-accent/25"
+                  : "bg-surface/70 text-muted hover:bg-surface",
+              ].join(" ")}
+            >
+              {togglingAutoDraft
+                ? "Saving…"
+                : `Auto-draft: ${sessionEntrant.auto_draft_enabled ? "on" : "off"}`}
+            </button>
+            <span className="ml-auto text-xs text-muted">
+              {savingPicks
+                ? "Saving…"
+                : loadingPicks
+                  ? "Loading…"
+                  : `Updated ${formatLastUpdated(lastUpdated)}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="text-xs text-muted underline underline-offset-4 hover:text-text"
+            >
               Sign out
             </button>
           </div>
-        ) : (
-          <div className="mt-3 text-xs text-muted">
-            Sign in from the home page before entering the draft room.
-          </div>
         )}
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-border/70 bg-bg/50 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-muted">Available</div>
-            <div className="mt-1 text-2xl font-semibold">{availableGolferCount}</div>
-          </div>
-          <div className="rounded-2xl border border-border/70 bg-bg/50 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-muted">Drafted</div>
-            <div className="mt-1 text-2xl font-semibold">{pickedGolferIds.size}</div>
-          </div>
-          <div className="rounded-2xl border border-border/70 bg-bg/50 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-muted">Your Picks</div>
-            <div className="mt-1 text-2xl font-semibold">{activePicks.length}</div>
-          </div>
-          <div className="rounded-2xl border border-border/70 bg-bg/50 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-muted">Entrants</div>
-            <div className="mt-1 text-2xl font-semibold">{draftSummaryNames.length}</div>
-          </div>
-        </div>
-        <div className="mt-4 rounded-2xl border border-border/70 bg-bg/40 px-4 py-3 text-sm">
-          <div className="text-[11px] uppercase tracking-wide text-muted">On The Clock</div>
-          <div className="mt-1 font-semibold text-text">
-            {draftState?.is_complete
-              ? "Draft complete"
-              : draftState?.current_entrant_name ?? "Draft not started"}
-          </div>
-          <div className="mt-1 text-xs text-muted">
-            Pick {draftState?.current_pick ?? "-"} of {draftState?.max_picks ?? draftSummaryNames.length * MAX_PICKS_PER_ENTRANT}
-            {" "} | {" "}
-            Round {draftState?.current_round ?? "-"}
-          </div>
-          <div className="mt-1 text-xs text-muted">
-            Clock: {draftState?.is_complete ? "Complete" : formatCountdown(timeRemaining)}
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted">
-          <span>
-            {draftOpen
-              ? "Board refreshes automatically every 30 seconds while this tab is open."
-              : "Draft is paused. Auto-refresh stops while the board is manually locked or outside 9AM-9PM Pacific."}
-          </span>
-          <span>Last updated: {formatLastUpdated(lastUpdated)}</span>
-        </div>
       </section>
 
-      {!draftOpen && (
-        <section className="rounded-2xl border border-border bg-surface p-5 text-sm text-muted">
-          Draft is currently paused. Players can make picks only when the board is manually open and the daily window is active from 9AM to 9PM Pacific.
-        </section>
-      )}
-
-      {!sessionEntrant && (
-        <section className="rounded-2xl border border-border bg-surface p-5 text-sm text-muted">
-          Draft access is locked until you sign in on the home page. Once signed in, come back here to make picks.
-          {entrantsError && <div className="mt-2 text-xs text-danger">{entrantsError}</div>}
-          {authError && <div className="mt-2 text-xs text-danger">{authError}</div>}
-        </section>
-      )}
-
-      <section className="grid gap-4 lg:grid-cols-[320px,1fr]">
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-border bg-surface p-4">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted">Draft Access</label>
-            <div className="mt-2 rounded-lg border border-border bg-bg px-3 py-2 text-sm">
-              {sessionEntrant ? sessionEntrant.entrant_name : "Sign in required"}
-            </div>
-
-            <div className="mt-3 rounded-lg border border-border/70 bg-bg/60 px-3 py-2 text-xs text-muted">
-              Picks: <span className="font-semibold text-text">{activePicks.length}</span> / {MAX_PICKS_PER_ENTRANT}
-            </div>
-            <div className="mt-2 rounded-lg border border-border/70 bg-bg/60 px-3 py-2 text-xs text-muted">
-              On clock: <span className="font-semibold text-text">{isOnClock ? "Yes" : "No"}</span>
-            </div>
-            <div className="mt-2 rounded-lg border border-border/70 bg-bg/60 px-3 py-2 text-xs text-muted">
-              Auto draft:{" "}
-              <span className="font-semibold text-text">
-                {sessionEntrant?.auto_draft_enabled ? "On" : "Off"}
-              </span>
-            </div>
-            {sessionEntrant && (
-              <button
-                type="button"
-                onClick={() => void toggleAutoDraft()}
-                disabled={togglingAutoDraft || savingPicks}
-                className="mt-3 w-full rounded-lg border border-border/70 bg-bg/70 px-3 py-2 text-sm font-medium text-text transition hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60"
+      {activePicks.length > 0 && (
+        <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4">
+          <div className="text-[11px] uppercase tracking-[0.28em] text-muted">Your picks</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {activePicks.map((golfer, idx) => (
+              <span
+                key={`${golfer}-${idx}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-bg/60 px-2 py-1 text-xs"
               >
-                {togglingAutoDraft
-                  ? "Updating..."
-                  : sessionEntrant.auto_draft_enabled
-                    ? "Turn Auto Draft Off"
-                    : "Turn Auto Draft On"}
-              </button>
-            )}
-            <div className="mt-2 text-xs text-muted">
-              {savingPicks
-                ? "Saving..."
-                : loadingPicks
-                  ? "Loading picks..."
-                  : draftOpen
-                    ? "Synced"
-                    : "Locked"}
-            </div>
-            {picksError && <div className="mt-1 text-xs text-danger">{picksError}</div>}
-            {entrantsLoading && <div className="mt-1 text-xs text-muted">Loading entrants...</div>}
+                <span className="text-muted">{idx + 1}.</span>
+                <span className="font-medium">{golfer}</span>
+              </span>
+            ))}
           </div>
+        </section>
+      )}
 
-          <div className="rounded-2xl border border-border bg-surface p-4">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-              {sessionEntrant ? `${sessionEntrant.entrant_name} Picks` : "Your Picks"}
-            </div>
-            {activePicks.length === 0 ? (
-              <div className="text-sm text-muted">
-                {sessionEntrant ? "No golfers selected yet." : "Sign in to draft golfers."}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {activePicks.map((golfer, idx) => (
-                  <div
-                    key={`${golfer}-${idx}`}
-                    className="flex items-center justify-between rounded-lg border border-border/70 bg-bg/60 px-3 py-2"
-                  >
-                    <div className="text-sm">
-                      <span className="text-muted">{idx + 1}. </span>
-                      {golfer}
-                    </div>
-                    {sessionEntrant && (
-                      <button
-                        type="button"
-                        onClick={() => void removePick(golfer)}
-                        disabled
-                        className="text-xs text-muted"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {sessionEntrant?.is_admin && (
-            <button
-              type="button"
-              onClick={() => void clearDraftBoard()}
-              disabled={!draftOpen}
-              className="w-full rounded-lg border border-danger/50 bg-danger/10 px-3 py-2 text-sm font-semibold text-danger"
-            >
-              Reset Draft Board
-            </button>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-border bg-surface p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
+      <section className="soft-card rounded-2xl border border-border bg-surface p-3 sm:p-4">
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold">Golfer Pool</div>
               <div className="text-xs text-muted">
                 Only undrafted golfers are shown here. Once selected, a golfer disappears from the board for everyone else.
@@ -653,11 +567,79 @@ function DraftPageContent() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search golfer..."
-              className="w-48 rounded-lg border border-border bg-bg px-3 py-2 text-sm"
+              aria-label="Search golfer"
+              className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm sm:w-48"
             />
           </div>
 
-          <div className="overflow-auto rounded-xl border border-border/70">
+          <ul className="space-y-2 md:hidden">
+            {visibleGolfers.map((golfer) => {
+              const picked = pickedGolferIds.has(golfer.golfer);
+              const pickedBy =
+                entrants.find((entrant) => (picksByEntrant[entrant.entrant_name] ?? []).includes(golfer.golfer))
+                  ?.entrant_name ??
+                Object.keys(picksByEntrant).find((entrantName) =>
+                  (picksByEntrant[entrantName] ?? []).includes(golfer.golfer)
+                ) ??
+                null;
+              const canPick =
+                Boolean(sessionEntrant) &&
+                draftOpen &&
+                isOnClock &&
+                !picked &&
+                !activeIsFull &&
+                !savingPicks &&
+                !draftState?.is_complete;
+              const buttonLabel = !sessionEntrant
+                ? "Sign in"
+                : picked
+                  ? "Locked"
+                  : !draftOpen
+                    ? "Locked"
+                    : draftState?.is_complete
+                      ? "Done"
+                      : isOnClock
+                        ? "Draft"
+                        : "Wait";
+              return (
+                <li
+                  key={`m-${golfer.id}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-bg/50 px-3 py-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex min-w-[1.75rem] justify-center rounded-md bg-surface/60 px-1.5 py-0.5 text-xs font-semibold text-muted">
+                        #{golfer.rank}
+                      </span>
+                      <div className="truncate text-sm font-medium">{golfer.golfer}</div>
+                    </div>
+                    <div className="mt-1 text-xs text-muted">
+                      Hdcp {golfer.handicap.toFixed(1)}
+                      {pickedBy ? (
+                        <span className="text-danger"> &middot; Drafted by {pickedBy}</span>
+                      ) : (
+                        <span className="text-accent"> &middot; Available</span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void addPick(golfer.golfer)}
+                    disabled={!canPick}
+                    aria-label={`Draft ${golfer.golfer}`}
+                    className={[
+                      "shrink-0 rounded-lg px-4 py-2 text-sm font-semibold",
+                      canPick ? "bg-accent text-black" : "bg-border text-muted",
+                    ].join(" ")}
+                  >
+                    {buttonLabel}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="hidden overflow-auto rounded-xl border border-border/70 md:block">
             <table className="w-full min-w-[700px] text-sm">
               <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">
                 <tr>
@@ -728,10 +710,9 @@ function DraftPageContent() {
               </tbody>
             </table>
           </div>
-        </div>
       </section>
 
-      <section className="rounded-2xl border border-border bg-surface p-4">
+      <section className="soft-card rounded-2xl border border-border bg-surface p-4">
         <h2 className="text-sm font-semibold">Draft Summary</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {draftSummaryNames.map((entrantName) => {
@@ -758,6 +739,19 @@ function DraftPageContent() {
           })}
         </div>
       </section>
+
+      {sessionEntrant?.is_admin && (
+        <div className="flex justify-center pt-1">
+          <button
+            type="button"
+            onClick={() => void clearDraftBoard()}
+            disabled={!draftOpen}
+            className="rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-xs font-semibold text-danger disabled:opacity-50"
+          >
+            Admin · Reset Draft Board
+          </button>
+        </div>
+      )}
     </main>
   );
 }

@@ -47,6 +47,7 @@ export async function POST(req: Request) {
         entrant_slug: entrant.entrant_slug,
         draft_position: entrant.draft_position,
         is_admin: entrant.is_admin,
+        welcomed_at: entrant.welcomed_at,
       },
     });
 

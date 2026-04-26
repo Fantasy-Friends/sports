@@ -4,7 +4,11 @@ import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getCurrentSeasonId } from "@/lib/events/resolve";
 import { entrantForWeek, weekStartFor, isLongshotOdds } from "@/lib/hotSeat/rotation";
 import { getErrorMessage } from "@/lib/error";
-import { getBaseUrl, sendNotificationToAllMembers } from "@/lib/notifications/send";
+import {
+  type BroadcastSummary,
+  getBaseUrl,
+  sendNotificationToAllMembers,
+} from "@/lib/notifications/send";
 import { renderHotSeatDeclared } from "@/lib/notifications/templates";
 import { smsHotSeatDeclared } from "@/lib/notifications/smsTemplates";
 
@@ -106,6 +110,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "not your week" }, { status: 403 });
     }
 
+    // Prevent re-declaring once the voting window has started. Double-submits
+    // would otherwise re-fire notifications to every member.
+    const { data: existing } = await supabaseAdmin
+      .from("hot_seat_weeks")
+      .select("status")
+      .eq("season_id", seasonId)
+      .eq("week_start", weekStart)
+      .maybeSingle<{ status: string }>();
+
+    if (existing && existing.status !== "awaiting") {
+      return NextResponse.json(
+        { error: "already declared for this week" },
+        { status: 409 },
+      );
+    }
+
     const body = (await request.json().catch(() => ({}))) as {
       declaration_text?: string;
       bet_details?: string;
@@ -152,6 +172,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (error) throw new Error(error.message);
 
+    let notifications: BroadcastSummary | { error: string } | null = null;
     try {
       const email = renderHotSeatDeclared(
         scheduled.display_name,
@@ -161,7 +182,7 @@ export async function POST(request: NextRequest) {
         getBaseUrl(),
       );
       const sms = smsHotSeatDeclared(scheduled.display_name, declaration, getBaseUrl());
-      await sendNotificationToAllMembers({
+      notifications = await sendNotificationToAllMembers({
         seasonId,
         kind: "hot_seat_declared",
         email,
@@ -169,10 +190,12 @@ export async function POST(request: NextRequest) {
         excludeEntrantIds: [canonicalId],
       });
     } catch (notifErr) {
-      console.warn("hot_seat_declared notification failed:", notifErr);
+      const message = notifErr instanceof Error ? notifErr.message : String(notifErr);
+      console.warn("hot_seat_declared notification failed:", message);
+      notifications = { error: message };
     }
 
-    return NextResponse.json({ ok: true, hot_seat: data });
+    return NextResponse.json({ ok: true, hot_seat: data, notifications });
   } catch (err) {
     return NextResponse.json(
       { error: getErrorMessage(err, "Failed to declare") },

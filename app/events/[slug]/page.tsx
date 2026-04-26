@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import SiteNav from "@/components/SiteNav";
 import BracketNbaBoard from "@/components/events/BracketNbaBoard";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getEventBySlug, getCurrentSeasonId } from "@/lib/events/resolve";
 import { getEventHandler } from "@/lib/events/registry";
 
@@ -25,6 +25,10 @@ const TIER_LABEL: Record<number, string> = {
 
 export default async function EventDetailPage({ params }: Props) {
   const { slug } = await params;
+
+  const session = await getAuthenticatedEntrant();
+  if (!session) redirect(`/sign-in?returnTo=/events/${slug}`);
+
   const seasonId = await getCurrentSeasonId();
   if (!seasonId) notFound();
 
@@ -58,8 +62,7 @@ export default async function EventDetailPage({ params }: Props) {
   const showProvisional = event.event_type === "bracket-nba" && event.status !== "final";
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-6">
-      <SiteNav />
+    <main className="mx-auto max-w-4xl">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">

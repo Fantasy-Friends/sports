@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "@/lib/error";
+import { useRequireEntrant } from "@/lib/useRequireEntrant";
 import AdminEventFinalizer from "@/components/AdminEventFinalizer";
 
 type TournamentOption = {
@@ -67,11 +68,51 @@ type DraftStateRow = {
   is_complete: boolean;
 };
 
+type NotificationSummary =
+  | {
+      recipients: number;
+      email: { delivered: number; failed: number; skipped: number };
+      sms: { delivered: number; failed: number; skipped: number };
+    }
+  | { error: string }
+  | null;
+
+function formatNotificationSummary(summary: NotificationSummary): string | null {
+  if (!summary) return null;
+  if ("error" in summary) return `Notifications failed: ${summary.error}`;
+  const parts: string[] = [`Notified ${summary.recipients} members`];
+  const emailTotal = summary.email.delivered + summary.email.failed;
+  if (emailTotal > 0) {
+    parts.push(
+      `email ${summary.email.delivered}/${emailTotal}` +
+        (summary.email.failed > 0 ? ` (${summary.email.failed} failed)` : ""),
+    );
+  }
+  const smsTotal = summary.sms.delivered + summary.sms.failed;
+  if (smsTotal > 0) {
+    parts.push(
+      `SMS ${summary.sms.delivered}/${smsTotal}` +
+        (summary.sms.failed > 0 ? ` (${summary.sms.failed} failed)` : ""),
+    );
+  }
+  return parts.join(" · ");
+}
+
 const TOURNAMENTS: TournamentOption[] = [
   { slug: "masters", label: "The Masters" },
   { slug: "pga-championship", label: "PGA Championship" },
   { slug: "us-open", label: "U.S. Open" },
   { slug: "the-open", label: "The Open Championship" },
+];
+
+type AdminTab = "draft" | "entrants" | "odds" | "scores" | "events";
+
+const ADMIN_TABS: Array<{ id: AdminTab; label: string }> = [
+  { id: "draft", label: "Draft" },
+  { id: "entrants", label: "Entrants" },
+  { id: "odds", label: "Odds" },
+  { id: "scores", label: "Scores" },
+  { id: "events", label: "Events" },
 ];
 
 function defaultRoundParForTournament(tournamentSlug: string) {
@@ -94,6 +135,12 @@ export default function AdminPage() {
   const [sessionEntrant, setSessionEntrant] = useState<Entrant | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
+
+  useRequireEntrant({
+    ready: !loadingSession,
+    entrant: sessionEntrant,
+    requireAdmin: true,
+  });
 
   const [previewRows, setPreviewRows] = useState<HandicapPreviewRow[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -121,6 +168,8 @@ export default function AdminPage() {
   const [draftStateError, setDraftStateError] = useState<string | null>(null);
   const [draftState, setDraftState] = useState<DraftStateRow | null>(null);
   const [resettingPreDraft, setResettingPreDraft] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<AdminTab>("draft");
 
   const poolId = useMemo(() => `${basePoolId}-${selectedTournament}`, [basePoolId, selectedTournament]);
 
@@ -203,11 +252,16 @@ export default function AdminPage() {
           draft_open: nextDraftOpen,
         }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as DraftStateRow & {
+        notifications?: NotificationSummary;
+        error?: string;
+      };
       if (!res.ok) throw new Error(json?.error ?? "Failed to update draft state");
       setDraftOpen(nextDraftOpen);
-      setDraftState((json ?? null) as DraftStateRow | null);
-      setDraftStateMessage(nextDraftOpen ? "Draft is now open." : "Draft is now locked.");
+      setDraftState(json as DraftStateRow);
+      const base = nextDraftOpen ? "Draft is now open." : "Draft is now locked.";
+      const notif = formatNotificationSummary(json.notifications ?? null);
+      setDraftStateMessage(notif ? `${base} ${notif}.` : base);
     } catch (e: unknown) {
       setDraftStateError(getErrorMessage(e, "Failed to update draft state"));
     } finally {
@@ -418,34 +472,63 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="space-y-6">
-      <AdminEventFinalizer />
-      <section className="rounded-3xl border border-border bg-surface px-6 py-8">
-        <p className="text-xs uppercase tracking-[0.24em] text-muted">Admin</p>
-        <h1 className="mt-2 text-3xl font-semibold">Commissioner Tools</h1>
-        <p className="mt-2 text-sm text-muted">
-          Use this page for pool setup, player access control, odds sync, and live tournament score imports.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <select
-            value={selectedTournament}
-            onChange={(e) => setSelectedTournament(e.target.value as TournamentOption["slug"])}
-            className="rounded-lg border border-border bg-bg px-3 py-2 text-sm"
-          >
-            {TOURNAMENTS.map((tournament) => (
-              <option key={tournament.slug} value={tournament.slug}>
-                {tournament.label}
-              </option>
-            ))}
-          </select>
-          <div className="text-xs text-muted">Pool: {poolId}</div>
-          {sessionEntrant && (
-            <div className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs text-accent">
-              Signed in as {sessionEntrant.entrant_name}
-            </div>
-          )}
+    <main className="space-y-5">
+      <section className="soft-card rounded-[1.75rem] border border-border bg-surface px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-muted">Commissioner</p>
+            <h1 className="mt-1 text-xl font-semibold sm:text-2xl">Admin</h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedTournament}
+              onChange={(e) => setSelectedTournament(e.target.value as TournamentOption["slug"])}
+              aria-label="Event pool"
+              className="rounded-lg border border-border bg-bg px-3 py-2 text-sm"
+            >
+              {TOURNAMENTS.map((tournament) => (
+                <option key={tournament.slug} value={tournament.slug}>
+                  {tournament.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        {sessionEntrant && (
+          <div className="mt-3 text-xs text-muted">
+            Signed in as <span className="font-semibold text-text">{sessionEntrant.entrant_name}</span>
+          </div>
+        )}
       </section>
+
+      {!loadingSession && !pageError && sessionEntrant?.is_admin && (
+        <nav
+          aria-label="Admin tools"
+          className="soft-card -mx-1 overflow-x-auto rounded-[1.25rem] border border-border bg-surface/60 p-1"
+        >
+          <div className="flex min-w-max gap-1">
+            {ADMIN_TABS.map((tab) => {
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={[
+                    "whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
+                    active
+                      ? "bg-accent text-white shadow-[0_10px_24px_rgba(99,91,255,0.22)]"
+                      : "text-muted hover:bg-surface/80 hover:text-text",
+                  ].join(" ")}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
       {loadingSession && (
         <section className="rounded-2xl border border-border bg-surface p-4 text-sm text-muted">
@@ -459,20 +542,11 @@ export default function AdminPage() {
         </section>
       )}
 
-      {!loadingSession && !pageError && (!sessionEntrant || !sessionEntrant.is_admin) && (
-        <section className="rounded-2xl border border-border bg-surface p-5">
-          <h2 className="text-sm font-semibold">Admin Access Required</h2>
-          <p className="mt-2 text-sm text-muted">
-            Sign in on the Draft page with an admin entrant to use this tab.
-          </p>
-        </section>
-      )}
-
       {!loadingSession && !pageError && sessionEntrant?.is_admin && (
         <>
-          <section className="grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
-            <div className="rounded-2xl border border-border bg-surface p-5">
-              <div className="mb-5 rounded-xl border border-border/70 bg-bg/40 p-4">
+          {activeTab === "draft" && (
+            <section className="soft-card rounded-2xl border border-border bg-surface p-4 sm:p-5">
+              <div className="rounded-xl border border-border/70 bg-bg/40 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-sm font-semibold">Draft Controls</h2>
@@ -487,7 +561,7 @@ export default function AdminPage() {
                         {draftOpen ? "Open" : "Locked"}
                       </span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
                       <button
                         type="button"
                         onClick={() => void updateDraftState(true)}
@@ -517,7 +591,7 @@ export default function AdminPage() {
                         onClick={() => void resetToPreDraftState()}
                         disabled={draftStateLoading || resettingPreDraft}
                         className={[
-                          "rounded-lg px-3 py-2 text-sm font-semibold",
+                          "col-span-2 rounded-lg px-3 py-2 text-sm font-semibold sm:col-span-1",
                           draftStateLoading || resettingPreDraft
                             ? "bg-border text-muted"
                             : "border border-danger/40 bg-danger/10 text-danger",
@@ -551,7 +625,11 @@ export default function AdminPage() {
                 {draftStateMessage && <div className="mt-3 text-xs text-accent">{draftStateMessage}</div>}
                 {draftStateError && <div className="mt-3 text-xs text-danger">{draftStateError}</div>}
               </div>
+            </section>
+          )}
 
+          {activeTab === "odds" && (
+            <section className="soft-card rounded-2xl border border-border bg-surface p-4 sm:p-5">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-sm font-semibold">Odds And Handicap Sync</h2>
@@ -625,9 +703,11 @@ export default function AdminPage() {
                   </div>
                 )
               )}
-            </div>
+            </section>
+          )}
 
-            <div className="rounded-2xl border border-border bg-surface p-5">
+          {activeTab === "entrants" && (
+            <section className="soft-card rounded-2xl border border-border bg-surface p-4 sm:p-5">
               <h2 className="text-sm font-semibold">Entrant Access</h2>
               <p className="mt-1 text-xs text-muted">
                 Use this when inviting players or rotating access codes. Generate a code, then send the invite link and code together.
@@ -647,7 +727,65 @@ export default function AdminPage() {
                 </div>
               )}
 
-              <div className="mt-4 overflow-auto rounded-xl border border-border/70">
+              <ul className="mt-4 space-y-2 md:hidden">
+                {entrants.map((entrant) => (
+                  <li
+                    key={`m-${entrant.entrant_id}`}
+                    className="rounded-xl border border-border/70 bg-bg/40 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">{entrant.entrant_name}</div>
+                        <div className="truncate text-xs text-muted">{entrant.entrant_slug}</div>
+                      </div>
+                      <span
+                        className={[
+                          "shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em]",
+                          entrant.is_admin ? "bg-accent/15 text-accent" : "bg-surface/70 text-muted",
+                        ].join(" ")}
+                      >
+                        {entrant.is_admin ? "Admin" : "Player"}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void updateEntrantAutoDraft(entrant, !entrant.auto_draft_enabled)}
+                        disabled={autoDraftLoadingId === entrant.entrant_id}
+                        className={[
+                          "rounded-lg px-3 py-2 text-xs font-semibold",
+                          autoDraftLoadingId === entrant.entrant_id
+                            ? "bg-border text-muted"
+                            : entrant.auto_draft_enabled
+                              ? "bg-accent text-black"
+                              : "border border-border bg-bg text-text",
+                        ].join(" ")}
+                      >
+                        {autoDraftLoadingId === entrant.entrant_id
+                          ? "Saving..."
+                          : entrant.auto_draft_enabled
+                            ? "Auto On"
+                            : "Auto Off"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void generateEntrantCode(entrant)}
+                        disabled={codeLoadingId === entrant.entrant_id}
+                        className={[
+                          "rounded-lg px-3 py-2 text-xs font-semibold",
+                          codeLoadingId === entrant.entrant_id
+                            ? "bg-border text-muted"
+                            : "border border-border bg-bg text-text",
+                        ].join(" ")}
+                      >
+                        {codeLoadingId === entrant.entrant_id ? "Generating..." : "Generate Code"}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-4 hidden overflow-auto rounded-xl border border-border/70 md:block">
                 <table className="w-full min-w-[540px] text-sm">
                   <thead className="border-b border-border text-xs uppercase tracking-wide text-muted">
                     <tr>
@@ -707,10 +845,11 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
-          <section className="rounded-2xl border border-border bg-surface p-5">
+          {activeTab === "scores" && (
+          <section className="soft-card rounded-2xl border border-border bg-surface p-4 sm:p-5">
             <h2 className="text-sm font-semibold">Tournament Score Sync</h2>
             <p className="mt-1 text-xs text-muted">
               Use this during live events or after a round finishes. Search the schedule, select the tournament, and sync leaderboard scores into the app.
@@ -808,6 +947,9 @@ export default function AdminPage() {
               </div>
             )}
           </section>
+          )}
+
+          {activeTab === "events" && <AdminEventFinalizer />}
         </>
       )}
     </main>
