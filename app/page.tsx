@@ -187,29 +187,24 @@ function HomeContent() {
     [events, COMING_SOON_SLUGS],
   );
 
-  const nextEvent = useMemo(() => {
-    if (liveEvent || featuredEvent) return null;
-    const upcoming = events
-      .filter((e) => e.slug !== HERO_EVENT_SLUG && !COMING_SOON_SLUGS.has(e.slug))
-      .filter((e) => e.status === "scheduled" || e.status === "open-entry")
-      .filter((e) => Boolean(e.starts_at))
-      .sort((a, b) => (a.starts_at! > b.starts_at! ? 1 : -1));
-    return upcoming[0] ?? null;
-  }, [events, liveEvent, featuredEvent, COMING_SOON_SLUGS]);
   const openEntryEvents = useMemo(
-    () => events.filter((e) => e.status === "open-entry").sort((a, b) => (a.starts_at ?? "") > (b.starts_at ?? "") ? 1 : -1),
-    [events],
+    () => events
+      .filter((e) => e.status === "open-entry")
+      .filter((e) => e.slug !== HERO_EVENT_SLUG && !COMING_SOON_SLUGS.has(e.slug))
+      .sort((a, b) => (a.starts_at ?? "") > (b.starts_at ?? "") ? 1 : -1),
+    [events, COMING_SOON_SLUGS],
   );
 
   const nextEvent = useMemo(() => {
-    if (liveEvent) return null;
+    if (liveEvent || featuredEvent) return null;
     if (openEntryEvents.length > 0) return null;
     const upcoming = events
+      .filter((e) => e.slug !== HERO_EVENT_SLUG && !COMING_SOON_SLUGS.has(e.slug))
       .filter((e) => e.status === "scheduled")
       .filter((e) => Boolean(e.starts_at))
       .sort((a, b) => (a.starts_at! > b.starts_at! ? 1 : -1));
     return upcoming[0] ?? null;
-  }, [events, liveEvent, openEntryEvents]);
+  }, [events, liveEvent, featuredEvent, openEntryEvents, COMING_SOON_SLUGS]);
 
   const topPool = useMemo(
     () =>
