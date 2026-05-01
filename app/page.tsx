@@ -164,20 +164,47 @@ function HomeContent() {
   }, []);
 
   const liveEvent = useMemo(() => events.find((e) => e.status === "live") ?? null, [events]);
-  const openEntryEvents = useMemo(
-    () => events.filter((e) => e.status === "open-entry").sort((a, b) => (a.starts_at ?? "") > (b.starts_at ?? "") ? 1 : -1),
+
+  // Launch overrides: Derby is the headline; NHL + NBA brackets are deferred.
+  // Decision pending — keep these slugs in sync when the rest of the bracket
+  // family lands.
+  const HERO_EVENT_SLUG = "2026-kentucky-derby";
+  const COMING_SOON_SLUGS = useMemo(
+    () => new Set(["2026-nba-playoffs-bracket", "2026-nhl-playoffs-bracket"]),
+    [],
+  );
+
+  const featuredEvent = useMemo(
+    () => events.find((e) => e.slug === HERO_EVENT_SLUG) ?? null,
     [events],
   );
 
+  const comingSoonEvents = useMemo(
+    () =>
+      events
+        .filter((e) => COMING_SOON_SLUGS.has(e.slug))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [events, COMING_SOON_SLUGS],
+  );
+
+  const openEntryEvents = useMemo(
+    () => events
+      .filter((e) => e.status === "open-entry")
+      .filter((e) => e.slug !== HERO_EVENT_SLUG && !COMING_SOON_SLUGS.has(e.slug))
+      .sort((a, b) => (a.starts_at ?? "") > (b.starts_at ?? "") ? 1 : -1),
+    [events, COMING_SOON_SLUGS],
+  );
+
   const nextEvent = useMemo(() => {
-    if (liveEvent) return null;
+    if (liveEvent || featuredEvent) return null;
     if (openEntryEvents.length > 0) return null;
     const upcoming = events
+      .filter((e) => e.slug !== HERO_EVENT_SLUG && !COMING_SOON_SLUGS.has(e.slug))
       .filter((e) => e.status === "scheduled")
       .filter((e) => Boolean(e.starts_at))
       .sort((a, b) => (a.starts_at! > b.starts_at! ? 1 : -1));
     return upcoming[0] ?? null;
-  }, [events, liveEvent, openEntryEvents]);
+  }, [events, liveEvent, featuredEvent, openEntryEvents, COMING_SOON_SLUGS]);
 
   const topPool = useMemo(
     () =>
@@ -196,8 +223,56 @@ function HomeContent() {
 
   return (
     <div className="space-y-4">
-      {/* Live event takeover */}
-      {liveEvent ? (
+      {/* Featured: Kentucky Derby launch hero. Takes priority over live/next
+          ladder until decisions land on what to do with the bracket family. */}
+      {featuredEvent ? (
+        <section
+          className="relative overflow-hidden rounded-[1.75rem] border border-[#5a1a25] text-[#fdebee]"
+          style={{
+            background:
+              "radial-gradient(circle at 18% 0%, rgba(244, 114, 182, 0.18), transparent 38%)," +
+              "radial-gradient(circle at 84% 14%, rgba(245, 193, 28, 0.10), transparent 32%)," +
+              "linear-gradient(180deg, #4a0d18 0%, #2c0610 70%, #1a040830 100%)",
+          }}
+        >
+          <div className="px-5 py-7 sm:px-8 sm:py-9">
+            <div className="text-[11px] uppercase tracking-[0.32em] text-[#f5c11c]/85">
+              Featured · Tier {featuredEvent.tier}
+            </div>
+            <h2 className="mt-2 font-serif text-3xl font-semibold leading-[0.95] text-white sm:text-4xl md:text-5xl">
+              {featuredEvent.name}
+            </h2>
+            <p className="mt-3 max-w-md text-sm text-white/70 sm:text-base">
+              The Run for the Roses headlines this stretch of the Decathlon. Build your stable, lock
+              your picks, and ride into Saturday at Churchill Downs.
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Link
+                href={`/events/${featuredEvent.slug}/entry`}
+                className="rounded-xl bg-[#f5c11c] px-4 py-2.5 text-sm font-semibold text-[#2c0610]"
+              >
+                Pick your stable →
+              </Link>
+              <Link
+                href={`/events/${featuredEvent.slug}`}
+                className="rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-white/85"
+              >
+                Event details
+              </Link>
+              {featuredEvent.starts_at && (
+                <span className="text-xs text-white/55">
+                  Post:{" "}
+                  {new Date(featuredEvent.starts_at).toLocaleDateString(undefined, {
+                    weekday: "long",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : liveEvent ? (
         <section
           className="relative overflow-hidden rounded-[1.75rem] border border-[#143a30] text-[#e9e3d1]"
           style={{
@@ -295,6 +370,38 @@ function HomeContent() {
           <p className="mt-2 text-sm text-text">
             No live events. <Link href="/calendar" className="underline">Check the calendar</Link> for what&rsquo;s coming up.
           </p>
+        </section>
+      )}
+
+      {/* Coming soon — bracket family deferred until decisions land. */}
+      {comingSoonEvents.length > 0 && (
+        <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4 sm:p-5">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.22em] text-muted">Coming soon</div>
+              <h3 className="mt-1 text-lg font-semibold">More to enter</h3>
+            </div>
+          </div>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {comingSoonEvents.map((e) => (
+              <li
+                key={e.event_id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-border/40 bg-bg/40 px-3 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-text" title={e.name}>
+                    {e.name}
+                  </div>
+                  <div className="mt-0.5 text-[11px] uppercase tracking-wide text-muted">
+                    Tier {e.tier} · Coming soon
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-md border border-border/40 bg-surface/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
+                  Soon
+                </span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
