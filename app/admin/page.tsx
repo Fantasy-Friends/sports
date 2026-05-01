@@ -153,7 +153,7 @@ export default function AdminPage() {
   const [scoreSearchLoading, setScoreSearchLoading] = useState(false);
   const [scoreSearchError, setScoreSearchError] = useState<string | null>(null);
   const [selectedScoreTournamentId, setSelectedScoreTournamentId] = useState<string | null>(null);
-  const [selectedScoreTournamentSlug, setSelectedScoreTournamentSlug] = useState("houston-open");
+  const [selectedScoreTournamentSlug, setSelectedScoreTournamentSlug] = useState<string>(selectedTournament);
   const [scoreSyncLoading, setScoreSyncLoading] = useState(false);
   const [scoreSyncMessage, setScoreSyncMessage] = useState<string | null>(null);
   const [draftOpen, setDraftOpen] = useState(false);
@@ -227,6 +227,7 @@ export default function AdminPage() {
     setScoreSyncMessage(null);
     setScoreResults([]);
     setSelectedScoreTournamentId(null);
+    setSelectedScoreTournamentSlug(selectedTournament);
     setDraftStateError(null);
     setDraftStateMessage(null);
   }, [selectedTournament]);

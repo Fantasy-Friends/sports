@@ -502,7 +502,7 @@ function CompanionRail({
           <div className="text-xs text-muted">No standings yet.</div>
         ) : (
           <ol className="space-y-1">
-            {standings.slice(0, 6).map((s, i) => {
+            {standings.map((s, i) => {
               const isMe = meName !== null && s.display_name === meName;
               return (
                 <li

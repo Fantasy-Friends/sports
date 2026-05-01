@@ -133,6 +133,33 @@ export async function getAuthenticatedEntrant(poolId?: string) {
   };
 }
 
+export async function getEntrantByEmail(email: string) {
+  const { data, error } = await supabaseAdmin
+    .from("draft_entrants")
+    .select(
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at",
+    )
+    .eq("google_email", email.toLowerCase())
+    .limit(1)
+    .maybeSingle<EntrantRow>();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function linkGoogleAccount(entrantId: string, email: string) {
+  const { error } = await supabaseAdmin
+    .from("draft_entrants")
+    .update({ google_email: email.toLowerCase() })
+    .eq("entrant_id", entrantId);
+
+  if (error) throw new Error(error.message);
+}
+
+export async function getEntrantById(entrantId: string) {
+  return loadEntrantById(entrantId);
+}
+
 export async function getEntrantBySlug(poolId: string, entrantSlug: string) {
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")

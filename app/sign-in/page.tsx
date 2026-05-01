@@ -1,72 +1,23 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { getErrorMessage } from "@/lib/error";
+import { Suspense, useEffect, useState } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
-
-type TournamentOption = {
-  slug: "masters" | "pga-championship" | "us-open" | "the-open";
-  label: string;
-};
-
-type Entrant = {
-  entrant_id: string;
-  entrant_name: string;
-  entrant_slug: string;
-  draft_position: number | null;
-  is_admin: boolean;
-};
-
-const TOURNAMENTS: TournamentOption[] = [
-  { slug: "masters", label: "The Masters" },
-  { slug: "pga-championship", label: "PGA Championship" },
-  { slug: "us-open", label: "U.S. Open" },
-  { slug: "the-open", label: "The Open Championship" },
-];
 
 function SignInPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
   const returnTo = searchParams.get("returnTo") || "/";
+  const oauthError = searchParams.get("error");
 
-  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("masters");
-  const [entrants, setEntrants] = useState<Entrant[]>([]);
-  const [entrantsLoading, setEntrantsLoading] = useState(true);
-
-  const [loginSlug, setLoginSlug] = useState("");
-  const [accessCode, setAccessCode] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
 
-  const poolId = useMemo(
-    () => `${basePoolId}-${selectedTournament}`,
-    [basePoolId, selectedTournament],
-  );
-
-  // Honor ?entrant= and ?tournament= in the invite link
-  useEffect(() => {
-    const entrantParam = searchParams.get("entrant");
-    const tournamentParam = searchParams.get("tournament");
-    if (tournamentParam && TOURNAMENTS.some((t) => t.slug === tournamentParam)) {
-      setSelectedTournament(tournamentParam as TournamentOption["slug"]);
-    }
-    if (entrantParam) setLoginSlug(entrantParam);
-  }, [searchParams]);
-
-  // If a valid session already exists, bounce to returnTo (or to /welcome
-  // if they haven't seen it yet). Prevents the "I'm signed in but I'm
-  // staring at a sign-in page" dead end.
+  // If already signed in, skip this page
   useEffect(() => {
     let cancelled = false;
     async function check() {
       try {
-        const res = await fetch(`/api/auth/me?pool_id=${encodeURIComponent(poolId)}`, {
-          cache: "no-store",
-        });
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
         const json = await res.json();
         if (!cancelled && json?.entrant) {
           if (!json.entrant.welcomed_at) {
@@ -77,75 +28,23 @@ function SignInPageContent() {
           return;
         }
       } catch {
-        // ignore — just show the form
+        // ignore
       } finally {
         if (!cancelled) setSessionChecked(true);
       }
     }
     void check();
-    return () => {
-      cancelled = true;
-    };
-  }, [poolId, returnTo, router]);
+    return () => { cancelled = true; };
+  }, [returnTo, router]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadEntrants() {
-      setEntrantsLoading(true);
-      try {
-        const res = await fetch(`/api/entrants?pool_id=${encodeURIComponent(poolId)}`, {
-          cache: "no-store",
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error ?? "Failed to load entrants");
-        if (!cancelled) {
-          const rows = (json.entrants ?? []) as Entrant[];
-          setEntrants(rows);
-          setLoginSlug((current) => current || rows[0]?.entrant_slug || "");
-        }
-      } catch {
-        if (!cancelled) setEntrants([]);
-      } finally {
-        if (!cancelled) setEntrantsLoading(false);
-      }
-    }
-    void loadEntrants();
-    return () => {
-      cancelled = true;
-    };
-  }, [poolId]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!loginSlug || !accessCode.trim()) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/entrant-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pool_id: poolId,
-          entrant_slug: loginSlug,
-          access_code: accessCode,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to sign in");
-      // First-time sign-in → route through /welcome so the video (and a
-      // one-time nickname moment later) happens before anything else.
-      const welcomedAt = json?.entrant?.welcomed_at ?? null;
-      if (!welcomedAt) {
-        router.replace(`/welcome?returnTo=${encodeURIComponent(returnTo)}`);
-      } else {
-        router.replace(returnTo);
-      }
-    } catch (e: unknown) {
-      setError(getErrorMessage(e, "Failed to sign in"));
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  const errorMessages: Record<string, string> = {
+    oauth_denied: "Sign-in was cancelled.",
+    invalid_state: "Something went wrong with the sign-in flow. Please try again.",
+    token_failed: "Couldn't complete sign-in with Google. Please try again.",
+    userinfo_failed: "Couldn't retrieve your Google account info. Please try again.",
+    no_email: "Your Google account doesn't have a verified email address.",
+    server_error: "An unexpected error occurred. Please try again.",
+  };
 
   if (!sessionChecked) {
     return (
@@ -170,86 +69,40 @@ function SignInPageContent() {
             Sign in
           </h1>
           <p className="mt-2 text-sm text-muted">
-            Enter the access code your commissioner sent you.
+            Use your Google account to access the pool.
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            <label className="block text-xs text-muted">
-              <span className="mb-1 block uppercase tracking-[0.18em]">Event pool</span>
-              <select
-                value={selectedTournament}
-                onChange={(e) => setSelectedTournament(e.target.value as TournamentOption["slug"])}
-                className="glass-input w-full rounded-xl px-3 py-3 text-sm text-text"
-              >
-                {TOURNAMENTS.map((t) => (
-                  <option key={t.slug} value={t.slug}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {oauthError && (
+            <div className="mt-4 rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {errorMessages[oauthError] ?? "Something went wrong. Please try again."}
+            </div>
+          )}
 
-            <label className="block text-xs text-muted">
-              <span className="mb-1 block uppercase tracking-[0.18em]">Entrant</span>
-              <select
-                value={loginSlug}
-                onChange={(e) => setLoginSlug(e.target.value)}
-                disabled={entrantsLoading || entrants.length === 0}
-                autoComplete="username"
-                name="entrant"
-                className="glass-input w-full rounded-xl px-3 py-3 text-sm text-text"
-              >
-                <option value="">
-                  {entrantsLoading ? "Loading…" : "Select entrant"}
-                </option>
-                {entrants.map((entrant) => (
-                  <option key={entrant.entrant_id} value={entrant.entrant_slug}>
-                    {entrant.entrant_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block text-xs text-muted">
-              <span className="mb-1 block uppercase tracking-[0.18em]">Access code</span>
-              <input
-                type="password"
-                value={accessCode}
-                onChange={(e) => setAccessCode(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                name="access-code"
-                inputMode="text"
-                className="glass-input w-full rounded-xl px-3 py-3 text-sm text-text"
-              />
-            </label>
-
-            {error && (
-              <div className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={submitting || !loginSlug || !accessCode.trim()}
-              className={[
-                "w-full rounded-xl px-4 py-3 text-sm font-semibold transition-all",
-                submitting || !loginSlug || !accessCode.trim()
-                  ? "bg-border/50 text-muted"
-                  : "bg-accent text-white shadow-[0_12px_28px_rgba(99,91,255,0.28)]",
-              ].join(" ")}
+          <div className="mt-6">
+            <a
+              href={`/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`}
+              className="flex w-full items-center justify-center gap-3 rounded-xl border border-border/60 bg-white px-4 py-3 text-sm font-semibold text-gray-700 shadow-sm transition-all hover:bg-gray-50 hover:shadow-md"
             >
-              {submitting ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
-
-          <div className="mt-6 text-[11px] text-muted">
-            Lost your access code? Ask your commissioner to regenerate it from the{" "}
-            <Link href="/admin" className="underline">
-              Admin
-            </Link>{" "}
-            page.
+              <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" aria-hidden="true">
+                <path
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  fill="#4285F4"
+                />
+                <path
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  fill="#34A853"
+                />
+                <path
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                  fill="#FBBC05"
+                />
+                <path
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  fill="#EA4335"
+                />
+              </svg>
+              Sign in with Google
+            </a>
           </div>
         </div>
       </section>

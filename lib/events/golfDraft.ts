@@ -1,5 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabase";
-import { calculatePlayerLeaderboard } from "@/lib/scoring";
+import {
+  fetchSlashLeaderboard,
+  golferLookupKeys,
+  normalizeGolferName,
+  resolveSlashTournamentId,
+} from "@/lib/slashGolf";
 import { awardPointsFromScores } from "@/lib/scoring/awardPoints";
 import type {
   BonusCandidate,
@@ -9,9 +14,9 @@ import type {
 } from "./types";
 
 // Golf events keep their existing data in the legacy pool_id-keyed tables
-// (draft_picks, tournament_round_scores, etc.). This handler bridges into
-// the new events schema: it reads the legacy data via lib/scoring.ts and
-// surfaces finishes + bonuses in the shared shape.
+// (draft_picks, golfers, etc.). This handler uses the live Slash Golf API
+// (same source as /api/leaderboards/player) to compute finishes, ensuring
+// the finalized results match exactly what players see on the leaderboard.
 
 type GolfConfig = {
   tournament_slug?: string;
@@ -23,6 +28,133 @@ function resolveLegacyKey(event: EventRow): { poolId: string; tournament: string
   const config = (event.config ?? {}) as GolfConfig;
   const tournament = config.tournament_slug ?? event.slug.replace(/^\d+-/, "");
   return { poolId: event.legacy_pool_id, tournament };
+}
+
+/**
+ * Builds a map of pool entrant_name -> canonical season_member entrant_id
+ * by matching directly on display_name (case-insensitive trim).
+ */
+async function buildCanonicalByName(
+  seasonId: string,
+): Promise<Map<string, string>> {
+  const { data: seasonMembers } = await supabaseAdmin
+    .from("season_members")
+    .select("entrant_id, display_name")
+    .eq("season_id", seasonId);
+
+  const result = new Map<string, string>();
+  for (const m of seasonMembers ?? []) {
+    result.set((m.display_name as string).trim().toLowerCase(), m.entrant_id as string);
+  }
+  return result;
+}
+
+type LiveGolferData = {
+  net_to_par: number | null;
+  total_strokes: number | null;
+  made_cut: boolean;
+  position: number | null;
+  golfer_name: string;
+};
+
+/**
+ * Fetches the Slash Golf leaderboard and returns per-golfer data using the
+ * same net-to-par formula as /api/leaderboards/player, including cut/WD
+ * penalties for rounds the golfer didn't play.
+ */
+async function fetchLiveGolferData(
+  poolId: string,
+  tournament: string,
+  year: string,
+): Promise<{ liveByGolfer: Map<string, LiveGolferData>; champion: string | null }> {
+  const apiKey = process.env.SLASH_GOLF_API_KEY || process.env.RAPIDAPI_KEY;
+  if (!apiKey) {
+    throw new Error("Missing SLASH_GOLF_API_KEY; cannot finalize golf-draft event via live API");
+  }
+
+  const tournamentId = await resolveSlashTournamentId(apiKey, tournament, year);
+  if (!tournamentId) {
+    throw new Error(`Could not resolve Slash Golf tournament ID for "${tournament}"`);
+  }
+
+  const [live, handicapRes, metaRes] = await Promise.all([
+    fetchSlashLeaderboard(apiKey, tournamentId, year),
+    supabaseAdmin.from("golfers").select("golfer, handicap").eq("pool_id", poolId),
+    supabaseAdmin
+      .from("tournament_meta")
+      .select("round_par")
+      .eq("pool_id", poolId)
+      .eq("tournament_slug", tournament)
+      .maybeSingle<{ round_par: number | null }>(),
+  ]);
+
+  const roundPar = metaRes.data?.round_par ?? 72;
+
+  const handicapByGolfer = new Map<string, number>();
+  for (const row of handicapRes.data ?? []) {
+    for (const key of golferLookupKeys(String(row.golfer))) {
+      handicapByGolfer.set(key, Number(row.handicap ?? 0));
+    }
+  }
+
+  // Field-worst strokes per started round (for cut/WD penalties)
+  const startedRoundNums = Array.from(
+    new Set(live.rows.flatMap((r) => r.rounds.map((round) => round.round_number)))
+  ).sort((a, b) => a - b);
+
+  const fieldWorstByRound = new Map<number, number>();
+  for (const roundNum of startedRoundNums) {
+    const strokes = live.rows
+      .flatMap((r) => r.rounds)
+      .filter((r) => r.round_number === roundNum && r.strokes !== null)
+      .map((r) => r.strokes as number);
+    fieldWorstByRound.set(roundNum, strokes.length > 0 ? Math.max(...strokes) : roundPar + 10);
+  }
+
+  const liveByGolfer = new Map<string, LiveGolferData>();
+  let champion: string | null = null;
+
+  for (const row of live.rows) {
+    const handicap = handicapByGolfer.get(normalizeGolferName(row.golfer)) ?? 0;
+    const playerStatus = row.rounds[0]?.score_status ?? "played";
+    const madeCut = playerStatus === "played";
+
+    // Apply cut/WD penalty strokes (to-par) for rounds the player didn't play
+    let grossToPar = row.total_to_par;
+    if (grossToPar !== null && !madeCut) {
+      const playedRoundNums = new Set(row.rounds.map((r) => r.round_number));
+      for (const roundNum of startedRoundNums) {
+        if (!playedRoundNums.has(roundNum)) {
+          if (playerStatus === "wd") {
+            grossToPar += 8;
+          } else {
+            const fieldWorst = fieldWorstByRound.get(roundNum) ?? roundPar + 10;
+            grossToPar += fieldWorst - roundPar;
+          }
+        }
+      }
+    }
+
+    const netToPar = grossToPar !== null ? grossToPar - handicap : null;
+
+    if (row.position === 1 && !champion) {
+      champion = row.golfer;
+    }
+
+    const value: LiveGolferData = {
+      net_to_par: netToPar,
+      total_strokes: row.total_strokes,
+      made_cut: madeCut,
+      position: row.position,
+      golfer_name: row.golfer,
+    };
+
+    for (const key of golferLookupKeys(row.golfer)) {
+      liveByGolfer.set(key, value);
+    }
+  }
+
+  return { liveByGolfer, champion };
 }
 
 export const golfDraftHandler: EventTypeHandler = {
@@ -43,50 +175,67 @@ export const golfDraftHandler: EventTypeHandler = {
       );
     }
 
-    const rows = await calculatePlayerLeaderboard(legacy.poolId, legacy.tournament);
+    const year = String(new Date().getFullYear());
+    const { liveByGolfer } = await fetchLiveGolferData(legacy.poolId, legacy.tournament, year);
 
-    // Resolve entrant_name -> entrant_id via legacy pool. (player leaderboard
-    // currently returns entrant_name; we need uuid for event_finishes.)
-    const { data: poolEntrants, error } = await supabaseAdmin
+    const { data: picks, error: picksError } = await supabaseAdmin
+      .from("draft_picks")
+      .select("entrant_name, golfer, pick_number")
+      .eq("pool_id", legacy.poolId)
+      .order("pick_number", { ascending: true });
+    if (picksError) throw new Error(picksError.message);
+
+    // Group picks by entrant
+    const picksByEntrant = new Map<string, string[]>();
+    for (const pick of picks ?? []) {
+      const list = picksByEntrant.get(pick.entrant_name as string) ?? [];
+      list.push(pick.golfer as string);
+      picksByEntrant.set(pick.entrant_name as string, list);
+    }
+
+    // Compute team totals using same formula as /api/leaderboards/player
+    const teamRows = Array.from(picksByEntrant.entries()).map(([name, golfers]) => {
+      const scorecards = golfers
+        .map((g) => {
+          const data = liveByGolfer.get(normalizeGolferName(g));
+          return { golfer: g, net_to_par: data?.net_to_par ?? null, position: data?.position ?? null };
+        })
+        .sort((a, b) => (a.net_to_par ?? 9999) - (b.net_to_par ?? 9999));
+
+      const scoring = scorecards.slice(0, 4);
+      const bench = scorecards.slice(4);
+      const teamTotal = scoring.reduce((sum, g) => sum + (g.net_to_par ?? 0), 0);
+
+      return {
+        entrant_name: name,
+        team_total: teamTotal,
+        tie_break_5_position: bench[0]?.position ?? null,
+      };
+    });
+
+    teamRows.sort((a, b) => {
+      if (a.team_total !== b.team_total) return a.team_total - b.team_total;
+      return (a.tie_break_5_position ?? 9999) - (b.tie_break_5_position ?? 9999);
+    });
+
+    // Map entrant names to canonical season_member IDs
+    const canonicalByName = await buildCanonicalByName(event.season_id);
+    const { data: poolEntrants, error: entrantError } = await supabaseAdmin
       .from("draft_entrants")
-      .select("entrant_id, entrant_name, person_key")
+      .select("entrant_id, entrant_name")
       .eq("pool_id", legacy.poolId);
-    if (error) throw new Error(error.message);
+    if (entrantError) throw new Error(entrantError.message);
 
-    const byName = new Map<string, string>();
+    const poolIdByName = new Map<string, string>();
     for (const row of poolEntrants ?? []) {
-      byName.set(row.entrant_name, row.entrant_id);
+      poolIdByName.set((row.entrant_name as string).trim().toLowerCase(), row.entrant_id as string);
     }
 
-    // Resolve the canonical season_members entrant_id per person_key so
-    // finishes land on the row the season leaderboard expects.
-    const { data: seasonLinks } = await supabaseAdmin
-      .from("season_members")
-      .select("entrant_id, draft_entrants!inner(person_key)")
-      .eq("season_id", event.season_id);
-
-    const canonicalByPersonKey = new Map<string, string>();
-    type SeasonLinkRow = {
-      entrant_id: string;
-      draft_entrants: { person_key: string | null } | { person_key: string | null }[] | null;
-    };
-    for (const row of (seasonLinks ?? []) as SeasonLinkRow[]) {
-      const related = Array.isArray(row.draft_entrants) ? row.draft_entrants[0] : row.draft_entrants;
-      const personKey = related?.person_key;
-      if (personKey) canonicalByPersonKey.set(personKey, row.entrant_id);
-    }
-
-    const poolPersonByName = new Map<string, string | null>();
-    for (const row of poolEntrants ?? []) {
-      poolPersonByName.set(row.entrant_name, row.person_key);
-    }
-
-    const scores = rows
+    const scores = teamRows
       .map((row) => {
-        const poolEntrantId = byName.get(row.entrant_name);
-        const personKey = poolPersonByName.get(row.entrant_name);
-        const canonicalId = personKey ? canonicalByPersonKey.get(personKey) : null;
-        const entrantId = canonicalId ?? poolEntrantId;
+        const key = row.entrant_name.trim().toLowerCase();
+        const canonicalId = canonicalByName.get(key) ?? null;
+        const entrantId = canonicalId ?? poolIdByName.get(key);
         if (!entrantId) return null;
         return {
           entrant_id: entrantId,
@@ -114,6 +263,16 @@ export const golfDraftHandler: EventTypeHandler = {
     const legacy = resolveLegacyKey(event);
     if (!legacy) return [];
 
+    const year = String(new Date().getFullYear());
+    let liveData: { liveByGolfer: Map<string, LiveGolferData>; champion: string | null };
+    try {
+      liveData = await fetchLiveGolferData(legacy.poolId, legacy.tournament, year);
+    } catch {
+      // If live API is unavailable for bonuses, skip rather than fail finalize
+      return [];
+    }
+    const { liveByGolfer, champion } = liveData;
+
     const { data: poolData } = await supabaseAdmin
       .from("draft_picks")
       .select("entrant_name, golfer")
@@ -121,59 +280,21 @@ export const golfDraftHandler: EventTypeHandler = {
 
     const picksByEntrant = new Map<string, string[]>();
     for (const row of poolData ?? []) {
-      const list = picksByEntrant.get(row.entrant_name) ?? [];
-      list.push(row.golfer);
-      picksByEntrant.set(row.entrant_name, list);
+      const list = picksByEntrant.get(row.entrant_name as string) ?? [];
+      list.push(row.golfer as string);
+      picksByEntrant.set(row.entrant_name as string, list);
     }
 
-    const { data: scoreRows } = await supabaseAdmin
-      .from("tournament_round_scores")
-      .select("golfer, strokes, score_status, position, position_text")
-      .eq("pool_id", legacy.poolId)
-      .eq("tournament_slug", legacy.tournament);
-
-    const grossByGolfer = new Map<string, number>();
-    const madeCutByGolfer = new Map<string, boolean>();
-    const positionByGolfer = new Map<string, number | null>();
-    for (const row of scoreRows ?? []) {
-      const prev = grossByGolfer.get(row.golfer) ?? 0;
-      grossByGolfer.set(row.golfer, prev + Number(row.strokes ?? 0));
-      if ((row.score_status ?? "played") !== "played") {
-        madeCutByGolfer.set(row.golfer, false);
-      } else if (!madeCutByGolfer.has(row.golfer)) {
-        madeCutByGolfer.set(row.golfer, true);
-      }
-      if (row.position !== null && !positionByGolfer.has(row.golfer)) {
-        positionByGolfer.set(row.golfer, row.position);
-      }
-    }
-
-    // Map entrant_name -> season entrant_id (same resolution as computeFinishes).
+    const canonicalByName = await buildCanonicalByName(event.season_id);
     const { data: poolEntrants } = await supabaseAdmin
       .from("draft_entrants")
-      .select("entrant_id, entrant_name, person_key")
+      .select("entrant_id, entrant_name")
       .eq("pool_id", legacy.poolId);
-
-    const { data: seasonLinks } = await supabaseAdmin
-      .from("season_members")
-      .select("entrant_id, draft_entrants!inner(person_key)")
-      .eq("season_id", event.season_id);
-
-    const canonicalByPersonKey = new Map<string, string>();
-    type SeasonLinkRow = {
-      entrant_id: string;
-      draft_entrants: { person_key: string | null } | { person_key: string | null }[] | null;
-    };
-    for (const row of (seasonLinks ?? []) as SeasonLinkRow[]) {
-      const related = Array.isArray(row.draft_entrants) ? row.draft_entrants[0] : row.draft_entrants;
-      const personKey = related?.person_key;
-      if (personKey) canonicalByPersonKey.set(personKey, row.entrant_id);
-    }
 
     const entrantIdByName = new Map<string, string>();
     for (const row of poolEntrants ?? []) {
-      const canonical = row.person_key ? canonicalByPersonKey.get(row.person_key) : null;
-      entrantIdByName.set(row.entrant_name, canonical ?? row.entrant_id);
+      const canonical = canonicalByName.get((row.entrant_name as string).trim().toLowerCase()) ?? null;
+      entrantIdByName.set((row.entrant_name as string).trim().toLowerCase(), canonical ?? row.entrant_id as string);
     }
 
     const candidates: BonusCandidate[] = [];
@@ -181,10 +302,18 @@ export const golfDraftHandler: EventTypeHandler = {
     // Survivor (+6): all 6 golfers made the cut; lowest combined gross total.
     let survivorWinner: { entrant_id: string; total: number } | null = null;
     for (const [name, golfers] of picksByEntrant.entries()) {
-      const allMadeCut = golfers.every((g) => madeCutByGolfer.get(g) !== false);
+      const allMadeCut = golfers.every((g) => {
+        const data = liveByGolfer.get(normalizeGolferName(g));
+        return data ? data.made_cut : true; // unknown golfers assumed made cut
+      });
       if (!allMadeCut) continue;
-      const total = golfers.reduce((sum, g) => sum + (grossByGolfer.get(g) ?? 0), 0);
-      const entrantId = entrantIdByName.get(name);
+
+      const total = golfers.reduce((sum, g) => {
+        const data = liveByGolfer.get(normalizeGolferName(g));
+        return sum + (data?.total_strokes ?? 0);
+      }, 0);
+
+      const entrantId = entrantIdByName.get(name.trim().toLowerCase());
       if (!entrantId) continue;
       if (!survivorWinner || total < survivorWinner.total) {
         survivorWinner = { entrant_id: entrantId, total };
@@ -200,17 +329,13 @@ export const golfDraftHandler: EventTypeHandler = {
     }
 
     // Golden Ticket (+4): drafted the actual tournament champion.
-    let champion: string | null = null;
-    for (const [golfer, pos] of positionByGolfer.entries()) {
-      if (pos === 1) {
-        champion = golfer;
-        break;
-      }
-    }
     if (champion) {
       for (const [name, golfers] of picksByEntrant.entries()) {
-        if (!golfers.includes(champion)) continue;
-        const entrantId = entrantIdByName.get(name);
+        const pickedChampion = golfers.some(
+          (g) => normalizeGolferName(g) === normalizeGolferName(champion!)
+        );
+        if (!pickedChampion) continue;
+        const entrantId = entrantIdByName.get(name.trim().toLowerCase());
         if (!entrantId) continue;
         candidates.push({
           entrant_id: entrantId,
@@ -221,8 +346,6 @@ export const golfDraftHandler: EventTypeHandler = {
       }
     }
 
-    // finishes isn't used here but is available if we later add bonuses that
-    // depend on finish ranking.
     void finishes;
 
     return candidates;

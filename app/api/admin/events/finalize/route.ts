@@ -55,7 +55,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upsert finishes.
+    // Delete any previously written finishes for this event before inserting
+    // fresh ones. A plain upsert on (event_id, entrant_id) leaves stale rows
+    // behind when entrant_ids change between runs (e.g. after fixing a
+    // person_key mapping bug), causing old wrong results to persist in the
+    // season standings view.
+    const { error: deleteErr } = await supabaseAdmin
+      .from("event_finishes")
+      .delete()
+      .eq("event_id", event.event_id);
+    if (deleteErr) throw new Error(deleteErr.message);
+
     const finishRows = finishes.map((f) => ({
       event_id: event.event_id,
       entrant_id: f.entrant_id,
@@ -69,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     const { error: finishErr } = await supabaseAdmin
       .from("event_finishes")
-      .upsert(finishRows, { onConflict: "event_id,entrant_id" });
+      .insert(finishRows);
     if (finishErr) throw new Error(finishErr.message);
 
     // Bonuses
