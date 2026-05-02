@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { initialsFor, tintFor } from "@/lib/avatarTint";
+import ChatPanel from "@/components/ChatPanel";
 
 /*
  * AppShell — the unified Stadium-mobile / Press Box-desktop chrome that
@@ -482,6 +483,45 @@ function RailTile({
   );
 }
 
+function RailTabs({
+  entrantId,
+  children,
+}: {
+  entrantId: string;
+  children: React.ReactNode;
+}) {
+  const [tab, setTab] = useState<"activity" | "chat">("activity");
+  return (
+    <div className="flex flex-col gap-3 overflow-hidden">
+      <div className="flex rounded-xl border border-border/40 bg-surface/70 p-0.5">
+        {(["activity", "chat"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={[
+              "flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-colors",
+              tab === t
+                ? "bg-accent text-white"
+                : "text-muted hover:text-text",
+            ].join(" ")}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === "activity" ? (
+        <div className="overflow-y-auto">{children}</div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/40 bg-surface/70 p-3" style={{ height: "calc(100vh - 9rem)" }}>
+          <ChatPanel meEntrantId={entrantId} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompanionRail({
   standings,
   myPicks,
@@ -842,15 +882,17 @@ export default function AppShell({
             the fold is unreachable on tall pages. */}
         <aside
           aria-label="Pool snapshot"
-          className="hidden lg:sticky lg:top-[4.5rem] lg:block lg:max-h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto"
+          className="hidden lg:sticky lg:top-[4.5rem] lg:flex lg:max-h-[calc(100vh-5rem)] lg:flex-col lg:self-start"
         >
-          <CompanionRail
-            standings={standings}
-            myPicks={myPicks}
-            bonuses={bonuses}
-            liveCtx={liveCtx}
-            meName={session.entrant_name}
-          />
+          <RailTabs entrantId={session.entrant_id}>
+            <CompanionRail
+              standings={standings}
+              myPicks={myPicks}
+              bonuses={bonuses}
+              liveCtx={liveCtx}
+              meName={session.entrant_name}
+            />
+          </RailTabs>
         </aside>
       </div>
     </>
