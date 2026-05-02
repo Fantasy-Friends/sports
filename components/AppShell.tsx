@@ -85,6 +85,7 @@ type BonusAward = {
 const NAV_ITEMS = [
   { href: "/",                    label: "Home" },
   { href: "/season/2026",         label: "Season" },
+  { href: "/chat",                label: "Chat" },
   { href: "/calendar",            label: "Calendar" },
   { href: "/hot-seat",            label: "Hot Seat" },
   { href: "/draft",               label: "Draft" },
@@ -93,6 +94,45 @@ const NAV_ITEMS = [
   { href: "/preferences",         label: "Notifications" },
   { href: "/admin",               label: "Admin" },
   { href: "/ux",                  label: "Design Lab" },
+];
+
+const BOTTOM_TABS = [
+  {
+    href: "/",
+    label: "Home",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
+        <path d="M3 12L12 3l9 9" /><path d="M9 21V12h6v9" />
+      </svg>
+    ),
+  },
+  {
+    href: "/season/2026",
+    label: "Season",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" />
+      </svg>
+    ),
+  },
+  {
+    href: "/chat",
+    label: "Chat",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/calendar",
+    label: "Calendar",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
+      </svg>
+    ),
+  },
 ];
 
 const PRESENCE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes = "here now"
@@ -483,42 +523,30 @@ function RailTile({
   );
 }
 
-function RailTabs({
-  entrantId,
-  children,
-}: {
-  entrantId: string;
-  children: React.ReactNode;
-}) {
-  const [tab, setTab] = useState<"activity" | "chat">("activity");
+function BottomTabBar({ pathname }: { pathname: string }) {
   return (
-    <div className="flex flex-col gap-3 overflow-hidden">
-      <div className="flex rounded-xl border border-border/40 bg-surface/70 p-0.5">
-        {(["activity", "chat"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
+    <nav
+      aria-label="Main navigation"
+      className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-white/10 bg-[#08201a]/95 backdrop-blur lg:hidden"
+    >
+      {BOTTOM_TABS.map((tab) => {
+        const active = pathname === tab.href;
+        return (
+          <Link
+            key={tab.href}
+            href={tab.href}
             className={[
-              "flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-colors",
-              tab === t
-                ? "bg-accent text-white"
-                : "text-muted hover:text-text",
+              "flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold uppercase tracking-[0.15em] transition-colors",
+              active ? "text-[#4ade80]" : "text-white/50 hover:text-white/80",
             ].join(" ")}
+            aria-current={active ? "page" : undefined}
           >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {tab === "activity" ? (
-        <div className="overflow-y-auto">{children}</div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/40 bg-surface/70 p-3" style={{ height: "calc(100vh - 9rem)" }}>
-          <ChatPanel meEntrantId={entrantId} />
-        </div>
-      )}
-    </div>
+            {tab.icon}
+            {tab.label}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -869,7 +897,7 @@ export default function AppShell({
       />
 
       <div className="grid gap-4 lg:grid-cols-[1fr,18rem]">
-        <main id="main-content" className="min-w-0">
+        <main id="main-content" className="min-w-0 pb-20 lg:pb-0">
           {!hideHeading && (
             <PageHeader title={title} subtitle={subtitle} presence={presence} />
           )}
@@ -882,19 +910,19 @@ export default function AppShell({
             the fold is unreachable on tall pages. */}
         <aside
           aria-label="Pool snapshot"
-          className="hidden lg:sticky lg:top-[4.5rem] lg:flex lg:max-h-[calc(100vh-5rem)] lg:flex-col lg:self-start"
+          className="hidden lg:sticky lg:top-[4.5rem] lg:block lg:max-h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto"
         >
-          <RailTabs entrantId={session.entrant_id}>
-            <CompanionRail
-              standings={standings}
-              myPicks={myPicks}
-              bonuses={bonuses}
-              liveCtx={liveCtx}
-              meName={session.entrant_name}
-            />
-          </RailTabs>
+          <CompanionRail
+            standings={standings}
+            myPicks={myPicks}
+            bonuses={bonuses}
+            liveCtx={liveCtx}
+            meName={session.entrant_name}
+          />
         </aside>
       </div>
+
+      <BottomTabBar pathname={pathname} />
     </>
   );
 }
