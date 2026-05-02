@@ -11,17 +11,16 @@ function requireEnv(name: string): string {
   return value;
 }
 
-const SUPABASE_URL = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
-
-// Client-side (uses anon key)
+// Client-side (uses anon key). Literal access required so Next.js can
+// statically inline NEXT_PUBLIC_* values into the browser bundle at build time.
 export const supabase = createClient(
-  SUPABASE_URL,
-  requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
 );
 
 // Server-side (uses service role). Only referenced from server code; fails fast
 // with a clear message instead of creating a broken client.
 export const supabaseAdmin = createClient(
-  SUPABASE_URL,
+  requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
   requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
 );
