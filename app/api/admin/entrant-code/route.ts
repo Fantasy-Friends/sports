@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateAccessCode, getAuthenticatedEntrant, hashSecret } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
   let body: { pool_id?: string; entrant_id?: string };

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { advanceDraftState } from "@/lib/draftOrder";
 import { getErrorMessage } from "@/lib/error";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
   let body: { pool_id?: string; entrant_id?: string; auto_draft_enabled?: boolean };

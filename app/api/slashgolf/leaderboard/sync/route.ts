@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
 import { fetchSlashLeaderboard } from "@/lib/slashGolf";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
   const apiKey = process.env.SLASH_GOLF_API_KEY || process.env.RAPIDAPI_KEY;

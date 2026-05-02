@@ -6,7 +6,7 @@ import {
   normalizeGolferName,
   resolveSlashTournamentId,
 } from "@/lib/slashGolf";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

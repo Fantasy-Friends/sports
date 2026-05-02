@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { awardPointsFromScores } from "@/lib/scoring/awardPoints";
 import type {
   EntryValidation,

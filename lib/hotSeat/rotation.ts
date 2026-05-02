@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const HOT_SEAT_TZ = "America/Los_Angeles";
 const MIN_LONGSHOT_ODDS = 400;

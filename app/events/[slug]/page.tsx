@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import BracketNbaBoard from "@/components/events/BracketNbaBoard";
 import AppShell from "@/components/AppShell";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getEventBySlug, getCurrentSeasonId } from "@/lib/events/resolve";
 import { getEventHandler } from "@/lib/events/registry";

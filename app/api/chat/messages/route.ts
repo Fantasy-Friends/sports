@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const SEASON_YEAR = 2026;
 const PAGE_SIZE = 50;

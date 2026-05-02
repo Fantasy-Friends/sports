@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import BracketNbaForm from "@/components/events/BracketNbaForm";
 import AppShell from "@/components/AppShell";
 import DerbySalaryCapForm from "@/components/events/DerbySalaryCapForm";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getEventBySlug, getCurrentSeasonId } from "@/lib/events/resolve";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import type { NbaBracketPayload } from "@/lib/events/bracketNba";

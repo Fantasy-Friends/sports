@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 /**
  * POST /api/auth/welcomed — mark the current entrant as having seen the

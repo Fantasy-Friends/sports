@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const DRAFT_SESSION_COOKIE = "draft_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;

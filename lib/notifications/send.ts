@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendViaResend } from "./resend";
 import { sendViaTwilio, isE164 } from "./twilio";
 import type { RenderedEmail } from "./templates";

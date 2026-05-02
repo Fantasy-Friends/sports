@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { EventRow } from "./types";
 
 const CURRENT_YEAR = Number(process.env.NEXT_PUBLIC_CURRENT_SEASON_YEAR ?? 2026);

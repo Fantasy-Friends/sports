@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getErrorMessage } from "@/lib/error";
 import { isDraftWindowOpen } from "@/lib/draftOrder";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 // draft_open flips during live draft management — stale reads would let a
 // locked draft still accept picks on someone's cached view. Always fetch fresh.

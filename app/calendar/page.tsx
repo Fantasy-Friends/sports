@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import AppShell from "@/components/AppShell";
 

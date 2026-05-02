@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
 import { fetchHandicaps, isTournamentSlug } from "@/lib/odds";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(
   req: Request,

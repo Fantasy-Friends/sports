@@ -6,7 +6,7 @@ import {
   isDraftWindowOpen,
 } from "@/lib/draftOrder";
 import { getErrorMessage } from "@/lib/error";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type TournamentMetaRow = {
   draft_open: boolean | null;

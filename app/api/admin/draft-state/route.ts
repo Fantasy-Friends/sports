@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { advanceDraftState, buildDraftState, EXPECTED_ENTRANT_COUNT, syncDraftState } from "@/lib/draftOrder";
 import { getErrorMessage } from "@/lib/error";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   type BroadcastSummary,
   getBaseUrl,
