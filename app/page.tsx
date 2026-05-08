@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import pgaLogo from "@/public/pga-championship.png";
 import AppShell from "@/components/AppShell";
 import { initialsFor, tintFor } from "@/lib/avatarTint";
 
@@ -233,10 +235,12 @@ function HomeContent() {
           {/* PGA Championship logo badge */}
           <div className="absolute right-4 top-4 sm:right-7 sm:top-7">
             <div className="rounded-2xl bg-white/90 p-2 shadow-lg">
-              <img
-                src="/PGA Championship.png"
+              <Image
+                src={pgaLogo}
                 alt="2026 PGA Championship"
                 className="h-16 w-16 object-contain sm:h-20 sm:w-20"
+                width={80}
+                height={80}
               />
             </div>
           </div>
