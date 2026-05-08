@@ -32,6 +32,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Entrant not found." }, { status: 404 });
     }
 
+    if (!entrant.access_code_hash) {
+      return NextResponse.json(
+        { error: "This account uses Google sign-in. Please sign in with Google." },
+        { status: 401 },
+      );
+    }
     const submittedHash = hashSecret(accessCode);
     if (submittedHash !== entrant.access_code_hash) {
       return NextResponse.json({ error: "Invalid access code." }, { status: 401 });
