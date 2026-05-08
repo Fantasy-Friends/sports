@@ -165,10 +165,7 @@ function HomeContent() {
 
   const liveEvent = useMemo(() => events.find((e) => e.status === "live") ?? null, [events]);
 
-  // Launch overrides: Derby is the headline; NHL + NBA brackets are deferred.
-  // Decision pending — keep these slugs in sync when the rest of the bracket
-  // family lands.
-  const HERO_EVENT_SLUG = "2026-kentucky-derby";
+  const HERO_EVENT_SLUG = "2026-pga-championship";
   const COMING_SOON_SLUGS = useMemo(
     () => new Set(["2026-nba-playoffs-bracket", "2026-nhl-playoffs-bracket"]),
     [],

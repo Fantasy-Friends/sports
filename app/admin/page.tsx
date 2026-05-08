@@ -130,7 +130,7 @@ function defaultRoundParForTournament(tournamentSlug: string) {
 
 export default function AdminPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
-  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("masters");
+  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("pga-championship");
   const [entrants, setEntrants] = useState<Entrant[]>([]);
   const [sessionEntrant, setSessionEntrant] = useState<Entrant | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);

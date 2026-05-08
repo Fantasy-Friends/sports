@@ -17,8 +17,8 @@ export async function GET(req: Request) {
     url.searchParams.get("pool_id") ||
     process.env.POOL_ID ||
     process.env.NEXT_PUBLIC_POOL_ID ||
-    "2026-majors-masters";
-  const tournament = (url.searchParams.get("tournament") || "masters").trim();
+    "2026-majors-pga-championship";
+  const tournament = (url.searchParams.get("tournament") || "pga-championship").trim();
   const year = (url.searchParams.get("year") || new Date().getFullYear().toString()).trim();
 
   if (!tournament) {
