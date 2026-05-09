@@ -4,6 +4,36 @@ import { useEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { tintFor, initialsFor } from "@/lib/avatarTint";
 
+function LotteryBallIcon() {
+  return (
+    <svg viewBox="0 0 96 96" className="mx-auto h-20 w-20 drop-shadow-lg" aria-hidden="true">
+      {/* Ground shadow */}
+      <ellipse cx="48" cy="91" rx="26" ry="4" fill="black" opacity="0.08" />
+      {/* Ball body */}
+      <circle cx="48" cy="44" r="42" fill="white" stroke="#d1d5db" strokeWidth="1.5" />
+      {/* Blue equatorial band, clipped to ball */}
+      <clipPath id="lb-clip">
+        <circle cx="48" cy="44" r="42" />
+      </clipPath>
+      <ellipse cx="48" cy="44" rx="42" ry="14" fill="#2563eb" clipPath="url(#lb-clip)" />
+      {/* Specular highlight */}
+      <ellipse cx="33" cy="26" rx="11" ry="6" fill="white" opacity="0.45" transform="rotate(-25 33 26)" />
+      {/* Question mark */}
+      <text
+        x="48" y="50"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize="22"
+        fontWeight="900"
+        fill="white"
+        fontFamily="system-ui, -apple-system, sans-serif"
+      >
+        ?
+      </text>
+    </svg>
+  );
+}
+
 // Reveal timing in ms, indexed from pick-N (first reveal) to pick-1 (winner, last reveal)
 const REVEAL_DELAYS_MS = [3500, 3500, 3500, 4000, 4000, 4500, 5500, 7000, 10000];
 const HIGHLIGHT_LEAD_MS = 2000;
@@ -129,7 +159,7 @@ export default function LotteryPage() {
 
       {loaded && !config && (
         <div className="soft-card rounded-2xl border border-border bg-surface p-10 text-center">
-          <div className="text-5xl">🎱</div>
+          <LotteryBallIcon />
           <h2 className="mt-4 text-xl font-semibold">No lottery scheduled</h2>
           <p className="mt-2 text-sm text-muted">
             The commissioner hasn&rsquo;t set up the draft lottery yet.
@@ -139,7 +169,7 @@ export default function LotteryPage() {
 
       {loaded && config && !result && (
         <div className="soft-card rounded-2xl border border-border bg-surface p-10 text-center">
-          <div className="text-5xl">🎱</div>
+          <LotteryBallIcon />
           <h2 className="mt-4 text-xl font-semibold">Draft Lottery</h2>
           {config.scheduled_at ? (
             <>
