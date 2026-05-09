@@ -76,6 +76,15 @@ const GOLFER_NAME_ALIASES: Record<string, string> = {
 
 const DEFAULT_HOSTS = ["live-golf-data.p.rapidapi.com"];
 
+// Per-request fetch timeout. Keeps a slow/hung Slash response from blocking
+// the route until the Vercel function timeout fires.
+const FETCH_TIMEOUT_MS = 6000;
+
+// In-memory cache for resolved tournament IDs. The ID for a given slug+year
+// never changes mid-season, so one successful lookup covers the whole event.
+const tournamentIdCache = new Map<string, { id: string; fetchedAt: number }>();
+const TOURNAMENT_ID_CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
+
 function getHosts() {
   const configured = process.env.SLASH_GOLF_API_HOST?.trim();
   if (configured) {
@@ -163,6 +172,7 @@ async function fetchSlashJson(
       const res = await fetch(url.toString(), {
         method: "GET",
         cache: "no-store",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         headers: {
           "x-rapidapi-key": apiKey,
           "x-rapidapi-host": host,
@@ -272,9 +282,7 @@ export async function fetchSlashLeaderboard(apiKey: string, tournId: string, yea
     "/leaderboard",
     [
       { orgId: 1, tournId: paddedId, year },
-      { orgId: 1, tournId: normalizedId, year },
       { orgId: 1, tournamentId: paddedId, year },
-      { orgId: 1, tournamentId: normalizedId, year },
     ],
     apiKey
   );
@@ -347,6 +355,12 @@ export async function resolveSlashTournamentId(
   tournamentSlug: string,
   year: string
 ) {
+  const cacheKey = `${tournamentSlug}-${year}`;
+  const cached = tournamentIdCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < TOURNAMENT_ID_CACHE_TTL_MS) {
+    return cached.id;
+  }
+
   const matchers = TOURNAMENT_NAME_MATCHERS[tournamentSlug] ?? [tournamentSlug];
   const schedule = await fetchSlashSchedules(apiKey, year);
   const normalizedMatchers = matchers.map((value) => value.toLowerCase());
@@ -356,5 +370,9 @@ export async function resolveSlashTournamentId(
     return normalizedMatchers.some((matcher) => name.includes(matcher));
   });
 
-  return match ? String(match.tournId).padStart(3, "0") : null;
+  const id = match ? String(match.tournId).padStart(3, "0") : null;
+  if (id) {
+    tournamentIdCache.set(cacheKey, { id, fetchedAt: Date.now() });
+  }
+  return id;
 }
