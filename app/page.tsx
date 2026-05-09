@@ -259,13 +259,13 @@ function HomeContent() {
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <Link
                 href="/draft"
-                className="rounded-xl bg-[#f5c11c] px-4 py-2.5 text-sm font-semibold text-[#0d1640]"
+                className="rounded-xl bg-[#f5c11c] px-4 py-2.5 text-sm font-semibold text-[#0d1640] transition-transform active:scale-[0.97]"
               >
                 Enter the Draft →
               </Link>
               <Link
                 href="/leaderboard"
-                className="rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-white/85"
+                className="rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-white/85 transition-transform active:scale-[0.97]"
               >
                 Player Leaderboard
               </Link>
@@ -351,7 +351,7 @@ function HomeContent() {
               </p>
               <Link
                 href={`/events/${event.slug}`}
-                className="mt-4 inline-flex rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white"
+                className="mt-4 inline-flex rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-transform active:scale-[0.97]"
               >
                 Open event →
               </Link>

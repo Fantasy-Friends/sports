@@ -342,7 +342,7 @@ function TopBar({
             aria-controls="appshell-drawer"
             aria-label={open ? "Close menu" : "Open menu"}
             title={open ? "Close menu" : "Open menu"}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/80 transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4ade80]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/80 transition active:scale-[0.97] hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4ade80]"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true">
               {open ? (
@@ -397,7 +397,7 @@ function TopBar({
             ref={drawerRef}
             id="appshell-drawer"
             role="menu"
-            className="border-t border-white/5 bg-[#08201a]/95 px-3 py-2 backdrop-blur sm:px-4 lg:px-8"
+            className="appshell-drawer border-t border-white/5 bg-[#08201a]/95 px-3 py-2 backdrop-blur sm:px-4 lg:px-8"
           >
             <div className="mx-auto grid max-w-7xl gap-1 sm:grid-cols-2 lg:grid-cols-3">
               {NAV_ITEMS.map((item) => {
@@ -415,7 +415,7 @@ function TopBar({
                     }}
                     aria-current={active ? "page" : undefined}
                     className={[
-                      "rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
+                      "rounded-lg px-3 py-2 text-sm font-semibold transition active:scale-[0.97]",
                       active ? "bg-[#f5c11c] text-[#08201a]" : "text-white/80 hover:bg-white/10",
                     ].join(" ")}
                   >
@@ -435,7 +435,7 @@ function TopBar({
                 <button
                   type="button"
                   onClick={onSignOut}
-                  className="shrink-0 text-white/60 underline underline-offset-4 hover:text-white"
+                  className="shrink-0 text-white/60 underline underline-offset-4 hover:text-white transition active:scale-[0.97]"
                 >
                   Sign out
                 </button>
@@ -551,7 +551,7 @@ function BottomTabBar({ pathname }: { pathname: string }) {
             key={tab.href}
             href={tab.href}
             className={[
-              "flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold uppercase tracking-[0.15em] transition-colors",
+              "flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold uppercase tracking-[0.15em] transition active:scale-[0.97]",
               active ? "text-[#4ade80]" : "text-white/50 hover:text-white/80",
             ].join(" ")}
             aria-current={active ? "page" : undefined}
@@ -684,7 +684,7 @@ function CompanionRail({
             </div>
             <Link
               href={`/events/${liveCtx.event.slug}`}
-              className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-white"
+              className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-white transition-transform active:scale-[0.97]"
             >
               Open event
               <span aria-hidden="true">→</span>

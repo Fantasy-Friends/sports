@@ -247,7 +247,7 @@ export default function LotteryPage() {
                       className={[
                         "flex flex-col items-center justify-center rounded-full text-white",
                         "h-16 w-16 sm:h-[4.5rem] sm:w-[4.5rem] select-none",
-                        "transition-all duration-300",
+                        "transition-[transform,box-shadow] duration-300",
                         isHighlighted
                           ? "scale-[1.3] ring-4 ring-[#f5c11c] shadow-[0_0_32px_rgba(245,193,28,0.75)] animate-pulse z-10"
                           : "animate-bounce shadow-md",
@@ -290,7 +290,7 @@ export default function LotteryPage() {
                     <li
                       key={entry.entrant_id}
                       className={[
-                        "flex items-center gap-3 rounded-xl border px-4 py-3",
+                        "animate-fade-up flex items-center gap-3 rounded-xl border px-4 py-3",
                         entry.draft_position === 1
                           ? "border-[#f5c11c]/40 bg-[#f5c11c]/[0.07]"
                           : "border-border/40 bg-bg/40",

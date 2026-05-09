@@ -42,7 +42,7 @@ export default function ThemeToggle() {
       onClick={toggleTheme}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-bg/80 px-3 text-xs font-semibold text-text transition-all hover:border-accent/70 hover:text-accent"
+      className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-bg/80 px-3 text-xs font-semibold text-text transition hover:border-accent/70 hover:text-accent active:scale-[0.97]"
     >
       <span aria-hidden="true" className="inline-flex h-4 w-4 items-center justify-center">
         {mounted && currentTheme === "dark" ? (
