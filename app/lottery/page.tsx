@@ -4,73 +4,122 @@ import { useEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { tintFor, initialsFor } from "@/lib/avatarTint";
 
-function LotteryBallIcon() {
+function MiniLotteryBall({ n, size = 44 }: { n: number; size?: number }) {
+  const gId = `mlb-g${n}`;
+  const cId = `mlb-c${n}`;
   return (
-    <svg viewBox="0 0 100 100" className="mx-auto h-[70px] w-[70px]" aria-hidden="true">
+    <svg viewBox="0 0 44 44" width={size} height={size} aria-hidden="true">
       <defs>
-        {/* Off-center radial gradient gives the 3D glossy illusion */}
-        <radialGradient id="lb-sphere" cx="36%" cy="28%" r="68%">
-          <stop offset="0%"   stopColor="#f2f7ff" />
-          <stop offset="52%"  stopColor="#dce8ff" />
-          <stop offset="100%" stopColor="#9ab4e0" />
+        <radialGradient id={gId} cx="35%" cy="28%" r="68%">
+          <stop offset="0%"   stopColor="#f8faff" />
+          <stop offset="55%"  stopColor="#e2e8f8" />
+          <stop offset="100%" stopColor="#b4bcd8" />
         </radialGradient>
-        {/* Inner panel — slightly offset so it catches the same light */}
-        <radialGradient id="lb-panel" cx="38%" cy="32%" r="62%">
-          <stop offset="0%"   stopColor="#ffffff" />
-          <stop offset="100%" stopColor="#e4effe" />
-        </radialGradient>
-        <clipPath id="lb-clip">
-          <circle cx="50" cy="50" r="38" />
+        <clipPath id={cId}>
+          <circle cx="22" cy="22" r="20" />
         </clipPath>
       </defs>
-
-      {/* Ground shadow */}
-      <ellipse cx="50" cy="94" rx="25" ry="4" fill="black" opacity="0.10" />
-
-      {/* Drum ring — back half sits behind the ball */}
-      <path
-        d="M 3 50 A 47 13 0 0 1 97 50"
-        fill="none" stroke="#2563eb" strokeWidth="4"
-        strokeOpacity="0.28" strokeLinecap="round"
-      />
-
-      {/* Ball body */}
-      <circle cx="50" cy="50" r="38" fill="url(#lb-sphere)" />
-
-      {/* Inner numbered-panel circle (like a real NBA lottery ball) */}
-      <circle cx="50" cy="50" r="22" fill="url(#lb-panel)" />
-      <circle cx="50" cy="50" r="22" fill="none" stroke="rgba(70,110,200,0.20)" strokeWidth="0.8" />
-
-      {/* Question mark */}
-      <text
-        x="50" y="52"
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fontSize="26"
-        fontWeight="900"
-        fill="#1e3a8a"
-        fontFamily="system-ui, -apple-system, sans-serif"
-      >?</text>
-
-      {/* Specular highlights — three layers for realistic gloss */}
-      <ellipse cx="31" cy="27" rx="13" ry="8"
-        fill="white" opacity="0.55"
-        transform="rotate(-32 31 27)" clipPath="url(#lb-clip)" />
-      <ellipse cx="34" cy="22" rx="6.5" ry="3"
-        fill="white" opacity="0.82"
-        transform="rotate(-32 34 22)" clipPath="url(#lb-clip)" />
-      <circle cx="26" cy="20" r="2.2" fill="white" opacity="0.72" />
-
-      {/* Ball rim — subtle edge darkening */}
-      <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(50,80,160,0.14)" strokeWidth="1.5" />
-
-      {/* Drum ring — front half sits in front of the ball */}
-      <path
-        d="M 97 50 A 47 13 0 0 1 3 50"
-        fill="none" stroke="#1d4ed8" strokeWidth="4"
-        strokeOpacity="0.50" strokeLinecap="round"
-      />
+      <circle cx="22" cy="22" r="20" fill={`url(#${gId})`} />
+      <ellipse cx="22" cy="22" rx="20" ry="6.5" fill="rgba(0,20,80,0.09)" clipPath={`url(#${cId})`} />
+      <text x="22" y="23" textAnchor="middle" dominantBaseline="middle"
+        fontSize="14" fontWeight="900" fill="#1a2060"
+        fontFamily="system-ui, -apple-system, sans-serif">{n}</text>
+      <ellipse cx="13" cy="11" rx="6" ry="3.5" fill="white" opacity="0.65"
+        transform="rotate(-30 13 11)" clipPath={`url(#${cId})`} />
+      <ellipse cx="15" cy="8" rx="3" ry="1.5" fill="white" opacity="0.85"
+        transform="rotate(-30 15 8)" clipPath={`url(#${cId})`} />
+      <circle cx="22" cy="22" r="20" fill="none" stroke="rgba(0,0,60,0.10)" strokeWidth="1" />
     </svg>
+  );
+}
+
+function LotteryPromoCard({
+  poolId,
+  scheduledAt,
+}: {
+  poolId: string;
+  scheduledAt: string | null;
+}) {
+  const KNOWN: Record<string, string> = {
+    "pga-championship":  "PGA Championship",
+    "masters":           "The Masters",
+    "us-open":           "U.S. Open",
+    "the-open":          "The Open Championship",
+    "british-open":      "The Open Championship",
+  };
+  const segment = poolId.split("-").slice(2).join("-");
+  const eventName =
+    KNOWN[segment] ??
+    segment.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const dateStr = scheduledAt
+    ? new Date(scheduledAt).toLocaleDateString(undefined, {
+        weekday: "long", month: "long", day: "numeric",
+      })
+    : null;
+  const timeStr = scheduledAt
+    ? new Date(scheduledAt).toLocaleTimeString(undefined, {
+        hour: "numeric", minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl border text-white"
+      style={{
+        background:
+          "radial-gradient(circle at 30% 0%, rgba(59,130,246,0.18), transparent 55%)," +
+          "linear-gradient(160deg, #0d1640 0%, #080e2a 100%)",
+        borderColor: "rgba(245,193,28,0.35)",
+        minHeight: "230px",
+      }}
+    >
+      {/* Decorative numbered balls at each corner */}
+      <div className="absolute -left-4 -top-4 rotate-[-18deg]"
+        style={{ filter: "drop-shadow(0 4px 14px rgba(0,0,0,0.6))" }}>
+        <MiniLotteryBall n={4} size={62} />
+      </div>
+      <div className="absolute -right-3 -top-3 rotate-[14deg]"
+        style={{ filter: "drop-shadow(0 4px 14px rgba(0,0,0,0.6))" }}>
+        <MiniLotteryBall n={2} size={58} />
+      </div>
+      <div className="absolute -bottom-4 -left-3 rotate-[22deg]"
+        style={{ filter: "drop-shadow(0 4px 14px rgba(0,0,0,0.6))" }}>
+        <MiniLotteryBall n={3} size={56} />
+      </div>
+      <div className="absolute -bottom-3 right-6 rotate-[-12deg]"
+        style={{ filter: "drop-shadow(0 4px 14px rgba(0,0,0,0.6))" }}>
+        <MiniLotteryBall n={1} size={64} />
+      </div>
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 rotate-[8deg] opacity-60"
+        style={{ filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.5))" }}>
+        <MiniLotteryBall n={7} size={46} />
+      </div>
+
+      {/* Main content — generous padding keeps text clear of corner balls */}
+      <div className="relative px-12 py-10 text-center sm:px-20">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.38em] text-white/45">
+          2026 Season
+        </div>
+        <h2 className="mt-3 font-serif text-3xl font-black uppercase leading-none tracking-tight text-white sm:text-4xl">
+          {eventName}
+        </h2>
+        <div className="mt-1 text-4xl font-black uppercase leading-none tracking-[0.08em] text-[#f5c11c] sm:text-5xl">
+          Draft Lottery
+        </div>
+        {dateStr ? (
+          <div className="mt-5">
+            <div className="text-base font-semibold text-white/85">{dateStr}</div>
+            <div className="mt-0.5 text-sm text-white/55">{timeStr}</div>
+          </div>
+        ) : (
+          <p className="mt-5 text-sm text-white/45">Date TBD — check back soon</p>
+        )}
+        <p className="mt-4 text-xs text-white/35">
+          The commissioner will kick it off live. This page updates automatically.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -104,15 +153,6 @@ function getCatchUpCount(startedAt: string): number {
   return REVEAL_DELAYS_MS.length;
 }
 
-function formatScheduled(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export default function LotteryPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
@@ -198,33 +238,11 @@ export default function LotteryPage() {
       )}
 
       {loaded && !config && (
-        <div className="soft-card rounded-2xl border border-border bg-surface p-10 text-center">
-          <LotteryBallIcon />
-          <h2 className="mt-4 text-xl font-semibold">No lottery scheduled</h2>
-          <p className="mt-2 text-sm text-muted">
-            The commissioner hasn&rsquo;t set up the draft lottery yet.
-          </p>
-        </div>
+        <LotteryPromoCard poolId={poolId} scheduledAt={null} />
       )}
 
       {loaded && config && !result && (
-        <div className="soft-card rounded-2xl border border-border bg-surface p-10 text-center">
-          <LotteryBallIcon />
-          <h2 className="mt-4 text-xl font-semibold">Draft Lottery</h2>
-          {config.scheduled_at ? (
-            <>
-              <p className="mt-2 text-sm text-muted">Scheduled for</p>
-              <p className="mt-1 text-lg font-bold text-info">
-                {formatScheduled(config.scheduled_at)}
-              </p>
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-muted">Date TBD — check back soon</p>
-          )}
-          <p className="mt-5 text-sm text-muted">
-            The commissioner will kick it off live. This page will update automatically.
-          </p>
-        </div>
+        <LotteryPromoCard poolId={config.pool_id} scheduledAt={config.scheduled_at} />
       )}
 
       {loaded && result && (
