@@ -131,8 +131,8 @@ function LotteryPromoCard({
 }
 
 // Reveal timing in ms, indexed from pick-N (first reveal) to pick-1 (winner, last reveal)
-const REVEAL_DELAYS_MS = [30000, 30000, 30000, 30000, 30000, 30000, 35000, 45000, 60000];
-const HIGHLIGHT_LEAD_MS = 8000;
+const REVEAL_DELAYS_MS = [15000, 15000, 15000, 15000, 15000, 15000, 17500, 22500, 30000];
+const HIGHLIGHT_LEAD_MS = 4000;
 
 type LotteryEntry = {
   entrant_id: string;
