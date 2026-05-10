@@ -57,10 +57,15 @@ function LotteryPromoCard({
         weekday: "long", month: "long", day: "numeric",
       })
     : null;
-  const timeStr = scheduledAt
-    ? new Date(scheduledAt).toLocaleTimeString(undefined, {
-        hour: "numeric", minute: "2-digit",
-      })
+  const tzTimes = scheduledAt
+    ? (["America/Los_Angeles", "America/Chicago", "America/New_York"] as const).map((tz) =>
+        new Date(scheduledAt).toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          timeZoneName: "short",
+          timeZone: tz,
+        })
+      )
     : null;
 
   return (
@@ -110,7 +115,9 @@ function LotteryPromoCard({
         {dateStr ? (
           <div className="mt-5">
             <div className="text-base font-semibold text-white/85">{dateStr}</div>
-            <div className="mt-0.5 text-sm text-white/55">{timeStr}</div>
+            <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm text-white/55">
+              {tzTimes?.map((t) => <span key={t}>{t}</span>)}
+            </div>
           </div>
         ) : (
           <p className="mt-5 text-sm text-white/45">Date TBD — check back soon</p>

@@ -1043,7 +1043,7 @@ export default function AdminPage() {
 
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wide text-muted mb-1">
-                      Scheduled date &amp; time
+                      Scheduled date &amp; time (PST)
                     </label>
                     <input
                       type="datetime-local"
@@ -1052,7 +1052,7 @@ export default function AdminPage() {
                       className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm"
                     />
                     <p className="mt-1 text-[11px] text-muted">
-                      Publishing this shows the time on the lottery page so everyone knows when to tune in.
+                      Enter time in Pacific Time. The lottery page shows PST, CST, and EST automatically.
                     </p>
                   </div>
 
