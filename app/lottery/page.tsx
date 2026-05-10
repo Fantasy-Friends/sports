@@ -6,30 +6,70 @@ import { tintFor, initialsFor } from "@/lib/avatarTint";
 
 function LotteryBallIcon() {
   return (
-    <svg viewBox="0 0 96 96" className="mx-auto h-20 w-20 drop-shadow-lg" aria-hidden="true">
+    <svg viewBox="0 0 100 100" className="mx-auto h-[70px] w-[70px]" aria-hidden="true">
+      <defs>
+        {/* Off-center radial gradient gives the 3D glossy illusion */}
+        <radialGradient id="lb-sphere" cx="36%" cy="28%" r="68%">
+          <stop offset="0%"   stopColor="#f2f7ff" />
+          <stop offset="52%"  stopColor="#dce8ff" />
+          <stop offset="100%" stopColor="#9ab4e0" />
+        </radialGradient>
+        {/* Inner panel — slightly offset so it catches the same light */}
+        <radialGradient id="lb-panel" cx="38%" cy="32%" r="62%">
+          <stop offset="0%"   stopColor="#ffffff" />
+          <stop offset="100%" stopColor="#e4effe" />
+        </radialGradient>
+        <clipPath id="lb-clip">
+          <circle cx="50" cy="50" r="38" />
+        </clipPath>
+      </defs>
+
       {/* Ground shadow */}
-      <ellipse cx="48" cy="91" rx="26" ry="4" fill="black" opacity="0.08" />
+      <ellipse cx="50" cy="94" rx="25" ry="4" fill="black" opacity="0.10" />
+
+      {/* Drum ring — back half sits behind the ball */}
+      <path
+        d="M 3 50 A 47 13 0 0 1 97 50"
+        fill="none" stroke="#2563eb" strokeWidth="4"
+        strokeOpacity="0.28" strokeLinecap="round"
+      />
+
       {/* Ball body */}
-      <circle cx="48" cy="44" r="42" fill="white" stroke="#d1d5db" strokeWidth="1.5" />
-      {/* Blue equatorial band, clipped to ball */}
-      <clipPath id="lb-clip">
-        <circle cx="48" cy="44" r="42" />
-      </clipPath>
-      <ellipse cx="48" cy="44" rx="42" ry="14" fill="#2563eb" clipPath="url(#lb-clip)" />
-      {/* Specular highlight */}
-      <ellipse cx="33" cy="26" rx="11" ry="6" fill="white" opacity="0.45" transform="rotate(-25 33 26)" />
+      <circle cx="50" cy="50" r="38" fill="url(#lb-sphere)" />
+
+      {/* Inner numbered-panel circle (like a real NBA lottery ball) */}
+      <circle cx="50" cy="50" r="22" fill="url(#lb-panel)" />
+      <circle cx="50" cy="50" r="22" fill="none" stroke="rgba(70,110,200,0.20)" strokeWidth="0.8" />
+
       {/* Question mark */}
       <text
-        x="48" y="50"
+        x="50" y="52"
         textAnchor="middle"
         dominantBaseline="middle"
-        fontSize="22"
+        fontSize="26"
         fontWeight="900"
-        fill="white"
+        fill="#1e3a8a"
         fontFamily="system-ui, -apple-system, sans-serif"
-      >
-        ?
-      </text>
+      >?</text>
+
+      {/* Specular highlights — three layers for realistic gloss */}
+      <ellipse cx="31" cy="27" rx="13" ry="8"
+        fill="white" opacity="0.55"
+        transform="rotate(-32 31 27)" clipPath="url(#lb-clip)" />
+      <ellipse cx="34" cy="22" rx="6.5" ry="3"
+        fill="white" opacity="0.82"
+        transform="rotate(-32 34 22)" clipPath="url(#lb-clip)" />
+      <circle cx="26" cy="20" r="2.2" fill="white" opacity="0.72" />
+
+      {/* Ball rim — subtle edge darkening */}
+      <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(50,80,160,0.14)" strokeWidth="1.5" />
+
+      {/* Drum ring — front half sits in front of the ball */}
+      <path
+        d="M 97 50 A 47 13 0 0 1 3 50"
+        fill="none" stroke="#1d4ed8" strokeWidth="4"
+        strokeOpacity="0.50" strokeLinecap="round"
+      />
     </svg>
   );
 }
