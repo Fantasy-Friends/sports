@@ -175,6 +175,7 @@ export default function AdminPage() {
   const [lotteryScheduledAt, setLotteryScheduledAt] = useState("");
   const [lotteryLoading, setLotteryLoading] = useState(false);
   const [lotteryStarting, setLotteryStarting] = useState(false);
+  const [lotteryResetting, setLotteryResetting] = useState(false);
   const [lotteryMessage, setLotteryMessage] = useState<string | null>(null);
   const [lotteryError, setLotteryError] = useState<string | null>(null);
 
@@ -527,6 +528,28 @@ export default function AdminPage() {
       setLotteryError(getErrorMessage(e, "Failed to save lottery schedule."));
     } finally {
       setLotteryLoading(false);
+    }
+  }
+
+  async function resetLottery() {
+    if (!window.confirm("Reset the lottery? This clears all results and draft positions so you can simulate again.")) return;
+    setLotteryResetting(true);
+    setLotteryError(null);
+    setLotteryMessage(null);
+    try {
+      const res = await fetch(`/api/lottery?pool_id=${encodeURIComponent(poolId)}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to reset lottery");
+      setLotteryConfig((prev) =>
+        prev ? { ...prev, result: null, started_at: null, status: "pending" } : null
+      );
+      setLotteryMessage("Lottery reset. Draft positions cleared — ready to run again.");
+    } catch (e: unknown) {
+      setLotteryError(getErrorMessage(e, "Failed to reset lottery."));
+    } finally {
+      setLotteryResetting(false);
     }
   }
 
@@ -1121,13 +1144,33 @@ export default function AdminPage() {
                     </div>
                   </div>
                   {Boolean(lotteryConfig.result) && (
-                    <p className="mt-3 text-xs text-accent">
-                      Results are live — visit{" "}
-                      <a href="/lottery" className="underline">
-                        /lottery
-                      </a>{" "}
-                      to see the animation.
-                    </p>
+                    <>
+                      <p className="mt-3 text-xs text-accent">
+                        Results are live — visit{" "}
+                        <a href="/lottery" className="underline">
+                          /lottery
+                        </a>{" "}
+                        to see the animation.
+                      </p>
+                      <div className="mt-3 border-t border-border/40 pt-3 flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void resetLottery()}
+                          disabled={lotteryResetting}
+                          className={[
+                            "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                            lotteryResetting
+                              ? "bg-border text-muted cursor-not-allowed"
+                              : "bg-danger/10 text-danger hover:bg-danger/20",
+                          ].join(" ")}
+                        >
+                          {lotteryResetting ? "Resetting…" : "↺ Reset Lottery"}
+                        </button>
+                        <p className="text-[11px] text-muted">
+                          Clears results and draft positions so you can run the lottery again.
+                        </p>
+                      </div>
+                    </>
                   )}
                 </div>
               )}

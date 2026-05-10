@@ -36,6 +36,50 @@ export async function GET(req: Request) {
   }
 }
 
+export async function DELETE(req: Request) {
+  const url = new URL(req.url);
+  const poolId = url.searchParams.get("pool_id")?.trim();
+  if (!poolId) {
+    return NextResponse.json({ error: "pool_id is required." }, { status: 400 });
+  }
+
+  try {
+    const session = await getAuthenticatedEntrant(poolId);
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+    }
+    if (!session.entrant.is_admin) {
+      return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+    }
+
+    // Reset the lottery record back to pending
+    const { error: lotteryError } = await supabaseAdmin
+      .from("draft_lottery")
+      .update({
+        result: null,
+        started_at: null,
+        status: "pending",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("pool_id", poolId);
+    if (lotteryError) throw new Error(lotteryError.message);
+
+    // Clear draft positions so entrants are ready for the next lottery run
+    const { error: posError } = await supabaseAdmin
+      .from("draft_entrants")
+      .update({ draft_position: null })
+      .eq("pool_id", poolId);
+    if (posError) throw new Error(posError.message);
+
+    return NextResponse.json({ ok: true, message: "Lottery reset. Draft positions cleared." });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: getErrorMessage(error, "Failed to reset lottery.") },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PUT(req: Request) {
   let body: { pool_id?: string; scheduled_at?: string | null };
   try {
