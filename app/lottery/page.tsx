@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { tintFor, initialsFor } from "@/lib/avatarTint";
 
@@ -131,8 +131,8 @@ function LotteryPromoCard({
 }
 
 // Reveal timing in ms, indexed from pick-N (first reveal) to pick-1 (winner, last reveal)
-const REVEAL_DELAYS_MS = [3500, 3500, 3500, 4000, 4000, 4500, 5500, 7000, 10000];
-const HIGHLIGHT_LEAD_MS = 2000;
+const REVEAL_DELAYS_MS = [30000, 30000, 30000, 30000, 30000, 30000, 35000, 45000, 60000];
+const HIGHLIGHT_LEAD_MS = 8000;
 
 type LotteryEntry = {
   entrant_id: string;
@@ -168,9 +168,10 @@ export default function LotteryPage() {
   const [config, setConfig] = useState<LotteryConfig | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [revealCount, setRevealCount] = useState(0);
-  const [highlightIdx, setHighlightIdx] = useState(-1);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const initializedRef = useRef(false);
+  const resultRef = useRef<LotteryEntry[] | null>(null);
 
   // Poll every 5 seconds so the page reacts when admin starts the lottery
   useEffect(() => {
@@ -183,7 +184,9 @@ export default function LotteryPage() {
         if (res.ok) {
           const json = await res.json();
           if (!cancelled) {
-            setConfig(json.lottery ?? null);
+            const lottery = json.lottery ?? null;
+            setConfig(lottery);
+            if (lottery?.result) resultRef.current = lottery.result as LotteryEntry[];
             setLoaded(true);
           }
         }
@@ -207,34 +210,42 @@ export default function LotteryPage() {
     setRevealCount(getCatchUpCount(config.started_at));
   }, [config?.result, config?.started_at]);
 
-  // Drive the reveal animation
+  // Drive the reveal animation — reads resultRef so polling-triggered re-renders
+  // don't cancel and restart the timers mid-pick.
   useEffect(() => {
-    const result = config?.result;
+    const result = resultRef.current;
     if (!result || revealCount >= result.length || !initializedRef.current) return;
 
-    const delay = REVEAL_DELAYS_MS[revealCount] ?? 3500;
+    const delay = REVEAL_DELAYS_MS[revealCount] ?? 30000;
     const highlightAt = Math.max(delay - HIGHLIGHT_LEAD_MS, Math.floor(delay * 0.4));
+    const nextEntry = result[revealCount];
 
     setIsDrawing(true);
-    setHighlightIdx(-1);
+    setHighlightedId(null);
 
-    const highlightTimer = setTimeout(() => setHighlightIdx(revealCount), highlightAt);
+    const highlightTimer = setTimeout(() => setHighlightedId(nextEntry?.entrant_id ?? null), highlightAt);
     const revealTimer = setTimeout(() => {
       setRevealCount((c) => c + 1);
       setIsDrawing(false);
-      setHighlightIdx(-1);
+      setHighlightedId(null);
     }, delay);
 
     return () => {
       clearTimeout(highlightTimer);
       clearTimeout(revealTimer);
     };
-  }, [revealCount, config?.result]);
+  }, [revealCount]);
 
   const result = config?.result ?? null;
   const revealed = result ? result.slice(0, revealCount) : [];
   const nextEntry = result ? result[revealCount] ?? null : null;
   const complete = result !== null && revealCount >= result.length;
+
+  const allEntrantsAlpha = useMemo(
+    () => result ? [...result].sort((a, b) => a.entrant_name.localeCompare(b.entrant_name)) : [],
+    [result],
+  );
+  const revealedIds = useMemo(() => new Set(revealed.map((e) => e.entrant_id)), [revealed]);
 
   return (
     <AppShell title="Draft Lottery" subtitle="Who picks where?">
@@ -303,37 +314,38 @@ export default function LotteryPage() {
                 {result.length - revealCount === 1 ? "ball" : "balls"} remaining
               </div>
               <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
-                {result.map((entry, idx) => {
-                  if (idx < revealCount) return null;
-                  const isHighlighted = idx === highlightIdx;
-                  return (
-                    <div
-                      key={entry.entrant_id}
-                      className={[
-                        "flex flex-col items-center justify-center rounded-full text-white",
-                        "h-16 w-16 sm:h-[4.5rem] sm:w-[4.5rem] select-none",
-                        "transition-[transform,box-shadow] duration-300",
-                        isHighlighted
-                          ? "scale-[1.3] ring-4 ring-[#f5c11c] shadow-[0_0_32px_rgba(245,193,28,0.75)] animate-pulse z-10"
-                          : "animate-bounce shadow-md",
-                      ].join(" ")}
-                      style={{
-                        background: tintFor(entry.entrant_name),
-                        animationDelay: `${(idx * 173) % 700}ms`,
-                        animationDuration: isHighlighted
-                          ? "0.5s"
-                          : `${0.7 + ((idx * 137) % 500) / 1000}s`,
-                      }}
-                    >
-                      <span className="text-[11px] font-bold leading-none">
-                        {initialsFor(entry.entrant_name)}
-                      </span>
-                      <span className="mt-0.5 max-w-full truncate px-1 text-center text-[8px] font-semibold leading-none">
-                        {entry.entrant_name.split(" ")[0]}
-                      </span>
-                    </div>
-                  );
-                })}
+                {allEntrantsAlpha
+                  .filter((entry) => !revealedIds.has(entry.entrant_id))
+                  .map((entry, idx) => {
+                    const isHighlighted = entry.entrant_id === highlightedId;
+                    return (
+                      <div
+                        key={entry.entrant_id}
+                        className={[
+                          "flex flex-col items-center justify-center rounded-full text-white",
+                          "h-16 w-16 sm:h-[4.5rem] sm:w-[4.5rem] select-none",
+                          "transition-[transform,box-shadow] duration-300",
+                          isHighlighted
+                            ? "scale-[1.3] ring-4 ring-[#f5c11c] shadow-[0_0_32px_rgba(245,193,28,0.75)] animate-pulse z-10"
+                            : "animate-bounce shadow-md",
+                        ].join(" ")}
+                        style={{
+                          background: tintFor(entry.entrant_name),
+                          animationDelay: `${(idx * 173) % 700}ms`,
+                          animationDuration: isHighlighted
+                            ? "0.5s"
+                            : `${0.7 + ((idx * 137) % 500) / 1000}s`,
+                        }}
+                      >
+                        <span className="text-[11px] font-bold leading-none">
+                          {initialsFor(entry.entrant_name)}
+                        </span>
+                        <span className="mt-0.5 max-w-full truncate px-1 text-center text-[8px] font-semibold leading-none">
+                          {entry.entrant_name.split(" ")[0]}
+                        </span>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           )}
