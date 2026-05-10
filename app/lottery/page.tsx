@@ -170,7 +170,7 @@ export default function LotteryPage() {
   const [revealCount, setRevealCount] = useState(0);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const initializedRef = useRef(false);
+  const [initialized, setInitialized] = useState(false);
   const resultRef = useRef<LotteryEntry[] | null>(null);
 
   // Poll every 5 seconds so the page reacts when admin starts the lottery
@@ -205,16 +205,16 @@ export default function LotteryPage() {
   // Catch up to the correct animation position when results first arrive.
   // Anyone who loads the page late will skip ahead rather than replaying from pick-9.
   useEffect(() => {
-    if (!config?.result || !config.started_at || initializedRef.current) return;
-    initializedRef.current = true;
+    if (!config?.result || !config.started_at || initialized) return;
+    setInitialized(true);
     setRevealCount(getCatchUpCount(config.started_at));
-  }, [config?.result, config?.started_at]);
+  }, [config?.result, config?.started_at, initialized]);
 
   // Drive the reveal animation — reads resultRef so polling-triggered re-renders
   // don't cancel and restart the timers mid-pick.
   useEffect(() => {
     const result = resultRef.current;
-    if (!result || revealCount >= result.length || !initializedRef.current) return;
+    if (!result || revealCount >= result.length || !initialized) return;
 
     const delay = REVEAL_DELAYS_MS[revealCount] ?? 30000;
     const highlightAt = Math.max(delay - HIGHLIGHT_LEAD_MS, Math.floor(delay * 0.4));
@@ -234,7 +234,7 @@ export default function LotteryPage() {
       clearTimeout(highlightTimer);
       clearTimeout(revealTimer);
     };
-  }, [revealCount]);
+  }, [revealCount, initialized]);
 
   const result = config?.result ?? null;
   const revealed = result ? result.slice(0, revealCount) : [];
