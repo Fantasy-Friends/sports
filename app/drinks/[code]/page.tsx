@@ -866,6 +866,8 @@ function MemberDecayCard({
   entries: Entry[];
   now: Date;
 }) {
+  const [showAudit, setShowAudit] = useState(false);
+
   const lookbackMs = TIMELINE_LOOKBACK_HOURS * 3600_000;
   const lookaheadMs = TIMELINE_LOOKAHEAD_HOURS * 3600_000;
   const fromMs = Math.min(now.getTime() - lookbackMs, ...entries.map((e) => new Date(e.occurred_at).getTime()));
@@ -878,12 +880,25 @@ function MemberDecayCard({
   const currentBac = calcBAC(profile, entries, now);
   const currentCaf = caffeineMgRemaining(entries, now);
 
-  const drinkMarkers = entries
+  const drinks = entries
     .filter((e) => e.kind === "drink")
-    .map((e) => new Date(e.occurred_at).getTime());
+    .map((e) => new Date(e.occurred_at).getTime())
+    .sort((a, b) => a - b);
   const cafMarkers = entries
     .filter((e) => e.kind === "caffeine")
     .map((e) => new Date(e.occurred_at).getTime());
+
+  // For each drink, compute BAC just after the drink lands (1 ms past) so the
+  // chart's dot markers show the post-drink value, and the audit table can
+  // render the step in BAC each entry produced.
+  const bacAtDrink = drinks.map((t) => ({
+    t,
+    bac: calcBAC(profile, entries, new Date(t + 1)),
+  }));
+  const cafAtMarker = cafMarkers.map((t) => ({
+    t,
+    mg: caffeineMgRemaining(entries, new Date(t + 1)),
+  }));
 
   return (
     <div
@@ -896,7 +911,7 @@ function MemberDecayCard({
           <p className="text-[11px] uppercase tracking-[0.3em] text-muted">{isMe ? "You" : "Member"}</p>
           <h3 className="mt-1 text-lg font-semibold text-text">{label}</h3>
         </div>
-        <div className="flex gap-3 text-right text-xs">
+        <div className="flex items-baseline gap-3 text-right text-xs">
           <div>
             <p className="text-[10px] uppercase tracking-wider" style={{ color: "#ef4444" }}>BAC</p>
             <p className="font-semibold" style={{ color: "#ef4444" }}>{currentBac.toFixed(3)}</p>
@@ -905,6 +920,13 @@ function MemberDecayCard({
             <p className="text-[10px] uppercase tracking-wider" style={{ color: "#fb923c" }}>Caffeine</p>
             <p className="font-semibold" style={{ color: "#fb923c" }}>{Math.round(currentCaf)} mg</p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowAudit((v) => !v)}
+            className="rounded-full border border-border/40 px-2 py-1 text-[10px] uppercase tracking-wider text-muted hover:text-text"
+          >
+            {showAudit ? "Hide math" : "Audit math"}
+          </button>
         </div>
       </div>
 
@@ -918,7 +940,7 @@ function MemberDecayCard({
           toMs={toMs}
           nowMs={now.getTime()}
           points={bacPoints}
-          markers={drinkMarkers}
+          dots={bacAtDrink.map((p) => ({ t: p.t, v: p.bac }))}
         />
         <DecayChart
           label="Caffeine (5h half-life)"
@@ -929,7 +951,7 @@ function MemberDecayCard({
           toMs={toMs}
           nowMs={now.getTime()}
           points={cafPoints}
-          markers={cafMarkers}
+          dots={cafAtMarker.map((p) => ({ t: p.t, v: p.mg }))}
         />
         <SubstanceWindow
           entries={entries.filter((e) => e.kind === "substance")}
@@ -952,12 +974,83 @@ function MemberDecayCard({
           ))}
         </div>
       )}
+
+      {showAudit && (
+        <AuditTable profile={profile} entries={entries} now={now} />
+      )}
+    </div>
+  );
+}
+
+function AuditTable({
+  profile, entries, now,
+}: {
+  profile: MemberProfile;
+  entries: Entry[];
+  now: Date;
+}) {
+  const drinkEntries = entries
+    .filter((e) => e.kind === "drink")
+    .map((e) => ({
+      e,
+      t: new Date(e.occurred_at).getTime(),
+      grams: (() => {
+        const p = e.payload as { oz?: number; abv?: number; pct?: number };
+        if (typeof p.oz !== "number" || typeof p.abv !== "number") return 0;
+        return p.oz * 29.5735 * p.abv * (p.pct ?? 1) * 0.789;
+      })(),
+    }))
+    .sort((a, b) => a.t - b.t);
+
+  return (
+    <div className="mt-4 rounded-xl border border-border/40 bg-surface/50 p-3">
+      <p className="mb-2 text-[11px] uppercase tracking-wider text-muted">
+        Drink-by-drink math for {profile.weight_lbs} lb · {profile.sex}
+      </p>
+      {drinkEntries.length === 0 ? (
+        <p className="text-xs text-muted">No drink entries to audit.</p>
+      ) : (
+        <table className="w-full text-left text-[11px] font-mono">
+          <thead className="text-muted">
+            <tr>
+              <th className="py-1 pr-2">Time</th>
+              <th className="py-1 pr-2">+ grams</th>
+              <th className="py-1 pr-2">BAC just before</th>
+              <th className="py-1 pr-2">BAC just after</th>
+            </tr>
+          </thead>
+          <tbody>
+            {drinkEntries.map((d) => {
+              const before = calcBAC(profile, entries, new Date(d.t - 1));
+              const after = calcBAC(profile, entries, new Date(d.t + 1));
+              return (
+                <tr key={d.e.entry_id} className="border-t border-border/20">
+                  <td className="py-1 pr-2">{new Date(d.t).toLocaleString()}</td>
+                  <td className="py-1 pr-2">+{d.grams.toFixed(1)} g</td>
+                  <td className="py-1 pr-2">{before.toFixed(3)}</td>
+                  <td className="py-1 pr-2 font-semibold" style={{ color: "#ef4444" }}>
+                    {after.toFixed(3)}
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="border-t border-border/20 text-muted">
+              <td className="py-1 pr-2">Now ({now.toLocaleTimeString()})</td>
+              <td className="py-1 pr-2">—</td>
+              <td className="py-1 pr-2">—</td>
+              <td className="py-1 pr-2 font-semibold" style={{ color: "#ef4444" }}>
+                {calcBAC(profile, entries, now).toFixed(3)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
 
 function DecayChart({
-  label, color, unit, decimals, fromMs, toMs, nowMs, points, markers,
+  label, color, unit, decimals, fromMs, toMs, nowMs, points, dots,
 }: {
   label: string;
   color: string;
@@ -967,7 +1060,7 @@ function DecayChart({
   toMs: number;
   nowMs: number;
   points: SeriesPoint[];
-  markers: number[];
+  dots: Array<{ t: number; v: number }>;
 }) {
   const W = 600;
   const H = 110;
@@ -1036,19 +1129,27 @@ function DecayChart({
         {/* Curve area + line */}
         <path d={areaPath} fill={color} opacity="0.15" />
         <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
-        {/* Entry markers (small ticks at the bottom) */}
-        {markers.map((m, i) => (
-          <line
-            key={`${m}-${i}`}
-            x1={xOf(m)}
-            y1={padT + innerH - 4}
-            x2={xOf(m)}
-            y2={padT + innerH + 4}
-            stroke={color}
-            strokeWidth="2"
-            opacity="0.9"
-          />
-        ))}
+        {/* Entry markers — vertical riser at the entry time + filled dot at
+            the post-entry value, so each addition is obvious on the curve. */}
+        {dots.map((d, i) => {
+          const dx = xOf(d.t);
+          const dy = yOf(d.v);
+          return (
+            <g key={`${d.t}-${i}`}>
+              <line
+                x1={dx}
+                y1={padT + innerH}
+                x2={dx}
+                y2={dy}
+                stroke={color}
+                strokeWidth="1"
+                opacity="0.35"
+                strokeDasharray="2 2"
+              />
+              <circle cx={dx} cy={dy} r={3} fill={color} stroke="#000" strokeWidth="1" />
+            </g>
+          );
+        })}
         {/* "Now" line */}
         <line
           x1={nowX}
