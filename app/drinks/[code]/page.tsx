@@ -12,13 +12,16 @@ import {
   SUBSTANCE_PRESETS,
   WATER_PRESETS,
   activeSubstances,
+  bacSeries,
   caffeineMgRemaining,
+  caffeineSeries,
   calcBAC,
   riskLevel,
   waterOzRecent,
   type Entry,
   type EntryKind,
   type MemberProfile,
+  type SeriesPoint,
   type Sex,
   type SubstancePayload,
 } from "@/lib/drinks/math";
@@ -99,13 +102,17 @@ export default function DrinkSessionPage() {
     return () => { clearInterval(tick); clearInterval(poll); };
   }, [refresh]);
 
-  async function logEntry(kind: EntryKind, payload: Record<string, unknown>) {
+  async function logEntry(
+    kind: EntryKind,
+    payload: Record<string, unknown>,
+    occurredAt: Date,
+  ) {
     setBusyKind(kind);
     try {
       const res = await fetch(`/api/drinks/sessions/${code}/entries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, payload, occurred_at: new Date().toISOString() }),
+        body: JSON.stringify({ kind, payload, occurred_at: occurredAt.toISOString() }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to log");
@@ -126,6 +133,23 @@ export default function DrinkSessionPage() {
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete");
+    }
+  }
+
+  async function updateEntryTime(entryId: string, occurredAt: Date) {
+    try {
+      const res = await fetch(`/api/drinks/sessions/${code}/entries`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entryId, occurred_at: occurredAt.toISOString() }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error ?? "Failed to update entry");
+      }
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update entry");
     }
   }
 
@@ -179,6 +203,7 @@ export default function DrinkSessionPage() {
           onTab={setTab}
           onLog={logEntry}
           onDeleteEntry={deleteEntry}
+          onUpdateEntryTime={updateEntryTime}
           onLeave={leaveSession}
           onEnd={endSession}
           onJoinNow={joinNow}
@@ -197,8 +222,9 @@ type ViewProps = {
   now: Date;
   tab: Tab;
   onTab: (t: Tab) => void;
-  onLog: (kind: EntryKind, payload: Record<string, unknown>) => Promise<void>;
+  onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date) => Promise<void>;
   onDeleteEntry: (entryId: string) => Promise<void>;
+  onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
   onLeave: () => Promise<void>;
   onEnd: () => Promise<void>;
   onJoinNow: () => Promise<void>;
@@ -207,7 +233,7 @@ type ViewProps = {
 };
 
 function SessionView({
-  state, now, tab, onTab, onLog, onDeleteEntry, onLeave, onEnd, onJoinNow, error, busyKind,
+  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onLeave, onEnd, onJoinNow, error, busyKind,
 }: ViewProps) {
   const meMember = useMemo(
     () => state.members.find((m) => m.entrant_id === state.me && !m.left_at) ?? null,
@@ -311,12 +337,18 @@ function SessionView({
           myEntries={myEntries}
           onLog={onLog}
           onDeleteEntry={onDeleteEntry}
+          onUpdateEntryTime={onUpdateEntryTime}
           busyKind={busyKind}
         />
       )}
 
       {tab === "timeline" && (
-        <Timeline state={state} profileById={profileById} />
+        <Timeline
+          state={state}
+          now={now}
+          profileById={profileById}
+          entriesByMember={entriesByMember}
+        />
       )}
     </>
   );
@@ -422,18 +454,54 @@ function Metric({ label, value, sub }: { label: string; value: string; sub?: str
 
 // ─── Log tab — quick-add buttons + my recent entries ────────────────────────
 
+const QUICK_AGO_OPTIONS = [0, 15, 30, 60, 120] as const;
+
+function toDateTimeLocal(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function LogTab({
-  isMember, isEnded, meMember, now, myEntries, onLog, onDeleteEntry, busyKind,
+  isMember, isEnded, meMember, now, myEntries, onLog, onDeleteEntry, onUpdateEntryTime, busyKind,
 }: {
   isMember: boolean;
   isEnded: boolean;
   meMember: MemberRow | null;
   now: Date;
   myEntries: Entry[];
-  onLog: (kind: EntryKind, payload: Record<string, unknown>) => Promise<void>;
+  onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date) => Promise<void>;
   onDeleteEntry: (entryId: string) => Promise<void>;
+  onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
   busyKind: EntryKind | null;
 }) {
+  const [quickAgoMin, setQuickAgoMin] = useState<number>(0); // 0 = now
+  const [useCustom, setUseCustom] = useState(false);
+  const [customLocal, setCustomLocal] = useState<string>(() => toDateTimeLocal(new Date()));
+
+  const computePickedDate = useCallback((): Date => {
+    if (useCustom) {
+      const d = new Date(customLocal);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    if (quickAgoMin > 0) return new Date(Date.now() - quickAgoMin * 60_000);
+    return new Date();
+  }, [useCustom, customLocal, quickAgoMin]);
+
+  // `now` is intentional: re-derive the preview every 15s so "Now" / "X min ago" stays current.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const previewDate = useMemo(() => computePickedDate(), [computePickedDate, now]);
+
+  const handlePick = useCallback(
+    async (kind: EntryKind, payload: Record<string, unknown>) => {
+      await onLog(kind, payload, computePickedDate());
+      // Snap back to "now" so the next quick log isn't accidentally back-dated.
+      setQuickAgoMin(0);
+      setUseCustom(false);
+      setCustomLocal(toDateTimeLocal(new Date()));
+    },
+    [onLog, computePickedDate],
+  );
+
   if (isEnded) {
     return (
       <div className="rounded-[1.5rem] border border-border/40 bg-surface/35 p-6 text-sm text-muted">
@@ -451,6 +519,64 @@ function LogTab({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      {/* Time picker — sticky-feeling, applies to whatever you tap next */}
+      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-info">When did it happen?</h3>
+            <p className="text-xs text-muted">
+              Applies to the next preset you tap. Resets to <em>Now</em> after each entry.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wider text-muted">Will log at</p>
+            <p className="text-sm font-semibold text-text">{previewDate.toLocaleString()}</p>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {QUICK_AGO_OPTIONS.map((m) => {
+            const isActive = !useCustom && quickAgoMin === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => { setQuickAgoMin(m); setUseCustom(false); }}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isActive
+                    ? "bg-accent text-white shadow-sm"
+                    : "border border-border/40 bg-surface/60 text-muted hover:text-text"
+                }`}
+              >
+                {m === 0 ? "Now" : `${m} min ago`}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => {
+              setUseCustom(true);
+              // Seed with current preview when switching in
+              if (!useCustom) setCustomLocal(toDateTimeLocal(previewDate));
+            }}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+              useCustom
+                ? "bg-accent text-white shadow-sm"
+                : "border border-border/40 bg-surface/60 text-muted hover:text-text"
+            }`}
+          >
+            Custom…
+          </button>
+          {useCustom && (
+            <input
+              type="datetime-local"
+              value={customLocal}
+              onChange={(e) => setCustomLocal(e.target.value)}
+              className="rounded-xl border border-border/40 bg-surface/60 px-3 py-1.5 text-xs"
+            />
+          )}
+        </div>
+      </section>
+
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5">
         <h3 className="text-lg font-semibold text-info">Drink</h3>
         <p className="text-xs text-muted">Logs as alcohol for BAC math.</p>
@@ -460,7 +586,7 @@ function LogTab({
             payload: { preset: p.name, oz: p.oz, abv: p.abv, pct: 1 },
           }))}
           disabled={busyKind !== null}
-          onPick={(payload) => onLog("drink", payload)}
+          onPick={(payload) => handlePick("drink", payload)}
         />
       </section>
 
@@ -473,7 +599,7 @@ function LogTab({
             payload: { preset: p.name, oz: p.oz },
           }))}
           disabled={busyKind !== null}
-          onPick={(payload) => onLog("water", payload)}
+          onPick={(payload) => handlePick("water", payload)}
         />
       </section>
 
@@ -486,7 +612,7 @@ function LogTab({
             payload: { preset: p.name, mg: p.mg, oz: p.oz },
           }))}
           disabled={busyKind !== null}
-          onPick={(payload) => onLog("caffeine", payload)}
+          onPick={(payload) => handlePick("caffeine", payload)}
         />
       </section>
 
@@ -504,15 +630,16 @@ function LogTab({
             } as SubstancePayload,
           }))}
           disabled={busyKind !== null}
-          onPick={(payload) => onLog("substance", payload as Record<string, unknown>)}
+          onPick={(payload) => handlePick("substance", payload as Record<string, unknown>)}
         />
       </section>
 
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
-        <h3 className="text-lg font-semibold text-info">Your recent log</h3>
+        <h3 className="text-lg font-semibold text-info">Your log</h3>
         {meMember && (
           <p className="text-xs text-muted">
             BAC math uses {meMember.weight_lbs} lb · {meMember.sex} (your profile when you joined).
+            Tap a timestamp to back-date or correct it.
           </p>
         )}
         {myEntries.length === 0 ? (
@@ -522,35 +649,110 @@ function LogTab({
             {myEntries
               .slice()
               .reverse()
-              .slice(0, 30)
+              .slice(0, 50)
               .map((e) => (
-                <li
+                <EntryRow
                   key={e.entry_id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border/30 bg-surface/40 px-3 py-2 text-sm"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-text">
-                      <KindBadge kind={e.kind} /> {entryLabel(e)}
-                    </p>
-                    <p className="text-[11px] text-muted">
-                      {new Date(e.occurred_at).toLocaleTimeString()} · {minutesAgo(e.occurred_at, now)}m ago
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void onDeleteEntry(e.entry_id)}
-                    className="rounded-md border border-border/40 px-2 py-1 text-[11px] font-semibold text-muted hover:border-danger/50 hover:text-danger"
-                    aria-label="Delete entry"
-                  >
-                    ×
-                  </button>
-                </li>
+                  entry={e}
+                  now={now}
+                  onDelete={() => onDeleteEntry(e.entry_id)}
+                  onUpdateTime={(d) => onUpdateEntryTime(e.entry_id, d)}
+                />
               ))}
           </ul>
         )}
       </section>
     </div>
   );
+}
+
+function EntryRow({
+  entry, now, onDelete, onUpdateTime,
+}: {
+  entry: Entry;
+  now: Date;
+  onDelete: () => Promise<void>;
+  onUpdateTime: (d: Date) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => toDateTimeLocal(new Date(entry.occurred_at)));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const d = new Date(draft);
+    if (Number.isNaN(d.getTime())) return;
+    setSaving(true);
+    try {
+      await onUpdateTime(d);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-lg border border-border/30 bg-surface/40 px-3 py-2 text-sm">
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-semibold text-text">
+          <KindBadge kind={entry.kind} /> {entryLabel(entry)}
+        </p>
+        {editing ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <input
+              type="datetime-local"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="rounded-md border border-border/40 bg-surface/60 px-2 py-1 text-[11px]"
+            />
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving}
+              className="rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                setDraft(toDateTimeLocal(new Date(entry.occurred_at)));
+              }}
+              className="rounded-md border border-border/40 px-2 py-1 text-[11px] text-muted"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="mt-0.5 block text-left text-[11px] text-muted underline decoration-dotted hover:text-text"
+            title="Click to edit the time"
+          >
+            {new Date(entry.occurred_at).toLocaleString()} · {agoLabel(entry.occurred_at, now)}
+          </button>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => void onDelete()}
+        className="rounded-md border border-border/40 px-2 py-1 text-[11px] font-semibold text-muted hover:border-danger/50 hover:text-danger"
+        aria-label="Delete entry"
+      >
+        ×
+      </button>
+    </li>
+  );
+}
+
+function agoLabel(iso: string, now: Date): string {
+  const mins = Math.round((now.getTime() - new Date(iso).getTime()) / 60000);
+  if (mins < 0) return `in ${Math.abs(mins)}m`;
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = mins / 60;
+  if (hrs < 24) return `${hrs.toFixed(1)}h ago`;
+  return `${(hrs / 24).toFixed(1)}d ago`;
 }
 
 function PresetGrid({
@@ -604,53 +806,345 @@ function entryLabel(e: Entry): string {
   return e.kind;
 }
 
-function minutesAgo(iso: string, now: Date): number {
-  return Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 60000));
-}
+// ─── Timeline tab — real-time decay viewer ──────────────────────────────────
+//
+// For each active member we draw two stacked decay curves: BAC and caffeine.
+// X axis spans from the earliest entry (or 6 hours ago, whichever is later)
+// out to 4 hours in the future. Vertical dotted line marks "now". Substance
+// windows render as horizontal bars in their own row beneath the charts.
 
-// ─── Timeline tab ────────────────────────────────────────────────────────────
+const TIMELINE_LOOKBACK_HOURS = 12;
+const TIMELINE_LOOKAHEAD_HOURS = 4;
 
 function Timeline({
-  state, profileById,
+  state, now, profileById, entriesByMember,
 }: {
   state: SessionState;
+  now: Date;
   profileById: Map<string, MemberProfile>;
+  entriesByMember: Map<string, Entry[]>;
 }) {
-  const sorted = useMemo(
-    () => state.entries.slice().sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)),
-    [state.entries],
-  );
-
-  if (sorted.length === 0) {
+  if (state.entries.length === 0) {
     return (
       <div className="rounded-[1.5rem] border border-border/40 bg-surface/35 p-6 text-sm text-muted">
-        No entries logged yet.
+        No entries logged yet. The decay curves will appear here as people log.
       </div>
     );
   }
 
+  const members = state.members.filter((m) => !m.left_at);
+
   return (
-    <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/35 p-5">
-      <ul className="grid gap-2">
-        {sorted.map((e) => {
-          const m = profileById.get(e.entrant_id);
-          return (
-            <li
-              key={e.entry_id}
-              className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-border/30 bg-surface/50 px-3 py-2 text-sm"
+    <section className="grid gap-4">
+      {members.map((m) => {
+        const profile = profileById.get(m.entrant_id);
+        if (!profile) return null;
+        const entries = entriesByMember.get(m.entrant_id) ?? [];
+        if (entries.length === 0) return null;
+        const isMe = m.entrant_id === state.me;
+        return (
+          <MemberDecayCard
+            key={m.entrant_id}
+            label={m.display_name}
+            isMe={isMe}
+            profile={profile}
+            entries={entries}
+            now={now}
+          />
+        );
+      })}
+    </section>
+  );
+}
+
+function MemberDecayCard({
+  label, isMe, profile, entries, now,
+}: {
+  label: string;
+  isMe: boolean;
+  profile: MemberProfile;
+  entries: Entry[];
+  now: Date;
+}) {
+  const lookbackMs = TIMELINE_LOOKBACK_HOURS * 3600_000;
+  const lookaheadMs = TIMELINE_LOOKAHEAD_HOURS * 3600_000;
+  const fromMs = Math.min(now.getTime() - lookbackMs, ...entries.map((e) => new Date(e.occurred_at).getTime()));
+  const toMs = now.getTime() + lookaheadMs;
+
+  const bacPoints = bacSeries(profile, entries, fromMs, toMs, 5);
+  const cafPoints = caffeineSeries(entries, fromMs, toMs, 5);
+  const drugs = activeSubstances(entries, now);
+
+  const currentBac = calcBAC(profile, entries, now);
+  const currentCaf = caffeineMgRemaining(entries, now);
+
+  const drinkMarkers = entries
+    .filter((e) => e.kind === "drink")
+    .map((e) => new Date(e.occurred_at).getTime());
+  const cafMarkers = entries
+    .filter((e) => e.kind === "caffeine")
+    .map((e) => new Date(e.occurred_at).getTime());
+
+  return (
+    <div
+      className={`rounded-[1.5rem] border p-5 ${
+        isMe ? "border-accent/60 bg-surface/55" : "border-border/40 bg-surface/35"
+      }`}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.3em] text-muted">{isMe ? "You" : "Member"}</p>
+          <h3 className="mt-1 text-lg font-semibold text-text">{label}</h3>
+        </div>
+        <div className="flex gap-3 text-right text-xs">
+          <div>
+            <p className="text-[10px] uppercase tracking-wider" style={{ color: "#ef4444" }}>BAC</p>
+            <p className="font-semibold" style={{ color: "#ef4444" }}>{currentBac.toFixed(3)}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider" style={{ color: "#fb923c" }}>Caffeine</p>
+            <p className="font-semibold" style={{ color: "#fb923c" }}>{Math.round(currentCaf)} mg</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        <DecayChart
+          label="BAC (Widmark + 0.015/hr metabolism)"
+          color="#ef4444"
+          unit=""
+          decimals={3}
+          fromMs={fromMs}
+          toMs={toMs}
+          nowMs={now.getTime()}
+          points={bacPoints}
+          markers={drinkMarkers}
+        />
+        <DecayChart
+          label="Caffeine (5h half-life)"
+          color="#fb923c"
+          unit=" mg"
+          decimals={0}
+          fromMs={fromMs}
+          toMs={toMs}
+          nowMs={now.getTime()}
+          points={cafPoints}
+          markers={cafMarkers}
+        />
+        <SubstanceWindow
+          entries={entries.filter((e) => e.kind === "substance")}
+          fromMs={fromMs}
+          toMs={toMs}
+          nowMs={now.getTime()}
+        />
+      </div>
+
+      {drugs.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {drugs.map((d) => (
+            <span
+              key={d.entry_id}
+              className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+              style={{ backgroundColor: `${SUBSTANCE_COLORS[d.type]}24`, color: SUBSTANCE_COLORS[d.type] }}
             >
-              <KindBadge kind={e.kind} />
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-text">{entryLabel(e)}</p>
-                <p className="text-[11px] text-muted">{m?.display_name ?? "—"}</p>
-              </div>
-              <p className="whitespace-nowrap text-[11px] text-muted">
-                {new Date(e.occurred_at).toLocaleString()}
-              </p>
-            </li>
+              {d.preset ?? d.type} · {d.hours_remaining.toFixed(1)}h left
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DecayChart({
+  label, color, unit, decimals, fromMs, toMs, nowMs, points, markers,
+}: {
+  label: string;
+  color: string;
+  unit: string;
+  decimals: number;
+  fromMs: number;
+  toMs: number;
+  nowMs: number;
+  points: SeriesPoint[];
+  markers: number[];
+}) {
+  const W = 600;
+  const H = 110;
+  const padL = 36;
+  const padR = 8;
+  const padT = 14;
+  const padB = 22;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const span = Math.max(1, toMs - fromMs);
+  const maxVal = Math.max(0.001, ...points.map((p) => p.value));
+
+  function xOf(t: number) {
+    return padL + ((t - fromMs) / span) * innerW;
+  }
+  function yOf(v: number) {
+    return padT + innerH - (v / maxVal) * innerH;
+  }
+
+  const path = points
+    .map((p, i) => `${i === 0 ? "M" : "L"}${xOf(p.t).toFixed(1)},${yOf(p.value).toFixed(1)}`)
+    .join(" ");
+  const areaPath = `${path} L${xOf(points[points.length - 1].t).toFixed(1)},${padT + innerH} L${xOf(points[0].t).toFixed(1)},${padT + innerH} Z`;
+
+  const nowX = xOf(nowMs);
+
+  // Hour ticks every 2 hours
+  const tickHours: number[] = [];
+  const startHour = Math.ceil(fromMs / 3600_000) * 3600_000;
+  for (let t = startHour; t <= toMs; t += 2 * 3600_000) tickHours.push(t);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-semibold" style={{ color }}>{label}</span>
+        <span className="text-muted">
+          peak {maxVal.toFixed(decimals)}{unit}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="mt-1 block h-auto w-full" role="img" aria-label={label}>
+        {/* Grid baseline */}
+        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="currentColor" opacity="0.15" />
+        {/* Hour ticks */}
+        {tickHours.map((t) => (
+          <g key={t}>
+            <line x1={xOf(t)} y1={padT} x2={xOf(t)} y2={padT + innerH} stroke="currentColor" opacity="0.05" />
+            <text
+              x={xOf(t)}
+              y={H - 6}
+              textAnchor="middle"
+              fontSize="9"
+              fill="currentColor"
+              opacity="0.5"
+            >
+              {new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+            </text>
+          </g>
+        ))}
+        {/* Y-axis labels */}
+        <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize="9" fill="currentColor" opacity="0.6">
+          {maxVal.toFixed(decimals)}
+        </text>
+        <text x={padL - 4} y={padT + innerH} textAnchor="end" fontSize="9" fill="currentColor" opacity="0.6">
+          0
+        </text>
+        {/* Curve area + line */}
+        <path d={areaPath} fill={color} opacity="0.15" />
+        <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+        {/* Entry markers (small ticks at the bottom) */}
+        {markers.map((m, i) => (
+          <line
+            key={`${m}-${i}`}
+            x1={xOf(m)}
+            y1={padT + innerH - 4}
+            x2={xOf(m)}
+            y2={padT + innerH + 4}
+            stroke={color}
+            strokeWidth="2"
+            opacity="0.9"
+          />
+        ))}
+        {/* "Now" line */}
+        <line
+          x1={nowX}
+          y1={padT}
+          x2={nowX}
+          y2={padT + innerH}
+          stroke="currentColor"
+          strokeDasharray="3 3"
+          opacity="0.5"
+        />
+        <text x={nowX + 3} y={padT + 10} fontSize="9" fill="currentColor" opacity="0.6">
+          now
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function SubstanceWindow({
+  entries, fromMs, toMs, nowMs,
+}: {
+  entries: Entry[];
+  fromMs: number;
+  toMs: number;
+  nowMs: number;
+}) {
+  if (entries.length === 0) return null;
+
+  const W = 600;
+  const rowH = 14;
+  const gap = 2;
+  const padL = 36;
+  const padR = 8;
+  const padT = 14;
+  const padB = 14;
+  const innerW = W - padL - padR;
+  const span = Math.max(1, toMs - fromMs);
+
+  const rows = entries.map((e, i) => {
+    const startMs = new Date(e.occurred_at).getTime();
+    const p = (e.payload ?? {}) as Partial<SubstancePayload>;
+    const dur = typeof p.duration_hours === "number" ? p.duration_hours : 0;
+    const endMs = startMs + dur * 3600_000;
+    const clampedStart = Math.max(fromMs, startMs);
+    const clampedEnd = Math.min(toMs, endMs);
+    const x1 = padL + ((clampedStart - fromMs) / span) * innerW;
+    const x2 = padL + ((clampedEnd - fromMs) / span) * innerW;
+    const color = SUBSTANCE_COLORS[(p.type as SubstancePayload["type"]) ?? "other"];
+    const isPast = endMs < nowMs;
+    return { e, p, i, x1, x2, color, isPast };
+  });
+
+  const totalH = padT + rows.length * (rowH + gap) + padB;
+  const nowX = padL + ((nowMs - fromMs) / span) * innerW;
+
+  return (
+    <div>
+      <p className="text-[11px] font-semibold text-muted">Substance windows</p>
+      <svg viewBox={`0 0 ${W} ${totalH}`} className="mt-1 block h-auto w-full" role="img" aria-label="Substance windows">
+        <line x1={padL} y1={padT} x2={W - padR} y2={padT} stroke="currentColor" opacity="0.1" />
+        {rows.map((r) => {
+          const y = padT + r.i * (rowH + gap);
+          const label = `${r.p.preset ?? r.p.type ?? "substance"}`;
+          return (
+            <g key={r.e.entry_id}>
+              <rect
+                x={r.x1}
+                y={y}
+                width={Math.max(2, r.x2 - r.x1)}
+                height={rowH}
+                rx={3}
+                fill={r.color}
+                opacity={r.isPast ? 0.2 : 0.55}
+              />
+              <text
+                x={r.x1 + 4}
+                y={y + rowH - 3}
+                fontSize="9"
+                fill="currentColor"
+                opacity="0.85"
+              >
+                {label}
+              </text>
+            </g>
           );
         })}
-      </ul>
-    </section>
+        <line
+          x1={nowX}
+          y1={padT - 2}
+          x2={nowX}
+          y2={totalH - padB + 2}
+          stroke="currentColor"
+          strokeDasharray="3 3"
+          opacity="0.5"
+        />
+      </svg>
+    </div>
   );
 }
