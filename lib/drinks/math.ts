@@ -65,6 +65,12 @@ export function lbsToKg(lbs: number): number {
 }
 
 // Grams of ethanol still in the body for a given member at `now`.
+// The body has ONE elimination rate (~0.015 BAC/hr ≈ a few grams/hr depending
+// on weight/sex), not one per drink. We integrate sequentially: accumulate
+// grams as each drink comes in, subtract the constant metabolism rate over
+// the gaps between drinks, then subtract once more from the last drink to
+// `now`. Clamping to 0 between events lets the clock "reset" cleanly when
+// the system fully clears before the next drink.
 export function alcoholGramsRemaining(
   profile: MemberProfile,
   entries: Entry[],
@@ -72,21 +78,34 @@ export function alcoholGramsRemaining(
 ): number {
   const weightKg = lbsToKg(profile.weight_lbs);
   const r = widmarkR(profile.sex);
-  const metabRate = ALCOHOL_METABOLISM * weightKg * r * 10; // grams/hr
+  const metabRate = ALCOHOL_METABOLISM * weightKg * r * 10; // grams/hr (whole body)
 
-  let total = 0;
+  const nowMs = now.getTime();
+  const drinks: Array<{ t: number; grams: number }> = [];
   for (const e of entries) {
     if (e.kind !== "drink") continue;
     const p = e.payload as DrinkPayload;
     if (!p || typeof p.oz !== "number" || typeof p.abv !== "number") continue;
     const t = new Date(e.occurred_at).getTime();
-    const hrs = Math.max(0, (now.getTime() - t) / 3600000);
+    if (!Number.isFinite(t) || t > nowMs) continue; // future entries don't count yet
     const pct = typeof p.pct === "number" ? p.pct : 1;
-    const consumed = p.oz * 29.5735 * p.abv * pct * 0.789; // grams
-    const remaining = Math.max(0, consumed - metabRate * hrs);
-    total += remaining;
+    const grams = p.oz * 29.5735 * p.abv * pct * 0.789;
+    if (grams > 0) drinks.push({ t, grams });
   }
-  return total;
+  if (drinks.length === 0) return 0;
+
+  drinks.sort((a, b) => a.t - b.t);
+
+  let grams = 0;
+  let lastT = drinks[0].t;
+  for (const d of drinks) {
+    const gapHrs = Math.max(0, (d.t - lastT) / 3600000);
+    grams = Math.max(0, grams - metabRate * gapHrs);
+    grams += d.grams;
+    lastT = d.t;
+  }
+  const tailHrs = Math.max(0, (nowMs - lastT) / 3600000);
+  return Math.max(0, grams - metabRate * tailHrs);
 }
 
 export function calcBAC(profile: MemberProfile, entries: Entry[], now: Date): number {
