@@ -90,7 +90,7 @@ const NAV_ITEMS = [
   { href: "/leaderboard",         label: "Player Leaderboard" },
   { href: "/tournament",          label: "Tournament Leaderboard" },
   { href: "/preferences",         label: "Notifications" },
-  { href: "/chris",               label: "Chris Tracker" },
+  { href: "/drinks",              label: "Drink Tracker" },
   { href: "/admin",               label: "Admin" },
   { href: "/ux",                  label: "Design Lab" },
 ];
