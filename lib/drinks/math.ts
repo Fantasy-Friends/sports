@@ -31,7 +31,7 @@ export type WaterPayload = {
 
 export type SubstancePayload = {
   preset?: string;
-  type: "stimulant" | "benzo" | "thc" | "opioid" | "other";
+  type: "stimulant" | "benzo" | "thc" | "opioid" | "nicotine" | "other";
   severity: number;     // 1..5
   duration_hours: number;
   notes?: string;
@@ -231,6 +231,11 @@ export const SUBSTANCE_PRESETS: ReadonlyArray<{
   { name: "THC 10mg edible", type: "thc", severity: 2, duration_hours: 6 },
   { name: "THC 25mg edible", type: "thc", severity: 3, duration_hours: 8 },
   { name: "Cannabis (smoked)", type: "thc", severity: 2, duration_hours: 3 },
+  // Zyn nicotine pouches. Plasma nicotine half-life is ~2 h; perceived effect
+  // window is ~45-90 min after the pouch is in. Severity scales with dose.
+  { name: "Zyn 3mg pouch", type: "nicotine", severity: 1, duration_hours: 1.5 },
+  { name: "Zyn 6mg pouch", type: "nicotine", severity: 2, duration_hours: 2 },
+  { name: "Zyn 9mg pouch", type: "nicotine", severity: 3, duration_hours: 2.5 },
 ];
 
 export const SUBSTANCE_COLORS: Record<SubstancePayload["type"], string> = {
@@ -238,5 +243,54 @@ export const SUBSTANCE_COLORS: Record<SubstancePayload["type"], string> = {
   benzo: "#f97316",
   thc: "#22c55e",
   opioid: "#a855f7",
+  nicotine: "#eab308",
   other: "#9ca3af",
 };
+
+// ─── Time series for charts ─────────────────────────────────────────────────
+//
+// Sample BAC and caffeine at fixed intervals across a window so the timeline
+// view can draw decay curves. Caller picks the window; we don't clip to
+// session boundaries because entries can span multiple days and the math
+// already accounts for full elapsed time.
+
+export type SeriesPoint = { t: number; value: number };
+
+export function bacSeries(
+  profile: MemberProfile,
+  entries: Entry[],
+  fromMs: number,
+  toMs: number,
+  stepMinutes = 5,
+): SeriesPoint[] {
+  const stepMs = stepMinutes * 60_000;
+  const out: SeriesPoint[] = [];
+  for (let t = fromMs; t <= toMs; t += stepMs) {
+    out.push({ t, value: calcBAC(profile, entries, new Date(t)) });
+  }
+  return out;
+}
+
+export function caffeineSeries(
+  entries: Entry[],
+  fromMs: number,
+  toMs: number,
+  stepMinutes = 5,
+): SeriesPoint[] {
+  const stepMs = stepMinutes * 60_000;
+  const out: SeriesPoint[] = [];
+  for (let t = fromMs; t <= toMs; t += stepMs) {
+    out.push({ t, value: caffeineMgRemaining(entries, new Date(t)) });
+  }
+  return out;
+}
+
+// Earliest entry timestamp across a member's logs (or null if none).
+export function earliestEntryMs(entries: Entry[]): number | null {
+  let best: number | null = null;
+  for (const e of entries) {
+    const t = new Date(e.occurred_at).getTime();
+    if (Number.isFinite(t) && (best === null || t < best)) best = t;
+  }
+  return best;
+}

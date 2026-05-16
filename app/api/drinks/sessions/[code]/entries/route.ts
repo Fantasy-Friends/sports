@@ -101,6 +101,73 @@ export async function POST(
   }
 }
 
+// Edit an entry I logged (currently: just the timestamp, optionally payload).
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ code: string }> },
+) {
+  try {
+    const auth = await getAuthenticatedEntrant();
+    if (!auth) return NextResponse.json({ error: "auth required" }, { status: 401 });
+
+    const { code: rawCode } = await context.params;
+    const code = rawCode.toUpperCase();
+    const body = (await request.json().catch(() => ({}))) as {
+      id?: string;
+      occurred_at?: string;
+      payload?: Record<string, unknown>;
+    };
+    if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const drinkSession = await loadSession(code);
+    if (!drinkSession) {
+      return NextResponse.json({ error: "session not found" }, { status: 404 });
+    }
+
+    const { data: entry } = await supabaseAdmin
+      .from("drink_session_entries")
+      .select("entry_id, entrant_id, session_id")
+      .eq("entry_id", body.id)
+      .maybeSingle<{ entry_id: string; entrant_id: string; session_id: string }>();
+    if (!entry || entry.session_id !== drinkSession.session_id) {
+      return NextResponse.json({ error: "entry not found" }, { status: 404 });
+    }
+    if (entry.entrant_id !== auth.entrant.entrant_id) {
+      return NextResponse.json({ error: "you can only edit your own entries" }, { status: 403 });
+    }
+
+    const update: Record<string, unknown> = {};
+    if (body.occurred_at) {
+      const t = new Date(body.occurred_at);
+      if (Number.isNaN(t.getTime())) {
+        return NextResponse.json({ error: "invalid occurred_at" }, { status: 400 });
+      }
+      update.occurred_at = t.toISOString();
+    }
+    if (body.payload && typeof body.payload === "object") {
+      update.payload = body.payload;
+    }
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("drink_session_entries")
+      .update(update)
+      .eq("entry_id", body.id)
+      .select("entry_id, session_id, entrant_id, kind, payload, occurred_at")
+      .single<EntryRow>();
+    if (error) throw new Error(error.message);
+
+    return NextResponse.json({ entry: data });
+  } catch (err) {
+    return NextResponse.json(
+      { error: getErrorMessage(err, "Failed to update entry") },
+      { status: 500 },
+    );
+  }
+}
+
 // Delete an entry I logged (or that I'm the session creator for cleanup).
 export async function DELETE(
   request: NextRequest,
