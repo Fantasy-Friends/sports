@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const PICKS_PER_ENTRANT = 6;
 export const EXPECTED_ENTRANT_COUNT = 9;

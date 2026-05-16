@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import pgaLogo from "@/public/pga-championship.png";
 import AppShell from "@/components/AppShell";
 import { initialsFor, tintFor } from "@/lib/avatarTint";
 
@@ -165,10 +167,7 @@ function HomeContent() {
 
   const liveEvent = useMemo(() => events.find((e) => e.status === "live") ?? null, [events]);
 
-  // Launch overrides: Derby is the headline; NHL + NBA brackets are deferred.
-  // Decision pending — keep these slugs in sync when the rest of the bracket
-  // family lands.
-  const HERO_EVENT_SLUG = "2026-kentucky-derby";
+  const HERO_EVENT_SLUG = "2026-pga-championship";
   const COMING_SOON_SLUGS = useMemo(
     () => new Set(["2026-nba-playoffs-bracket", "2026-nhl-playoffs-bracket"]),
     [],
@@ -223,45 +222,56 @@ function HomeContent() {
 
   return (
     <div className="space-y-4">
-      {/* Featured: Kentucky Derby launch hero. Takes priority over live/next
-          ladder until decisions land on what to do with the bracket family. */}
       {featuredEvent ? (
         <section
-          className="relative overflow-hidden rounded-[1.75rem] border border-[#5a1a25] text-[#fdebee]"
+          className="relative overflow-hidden rounded-[1.75rem] border border-[#1e3a8a]/50 text-white"
           style={{
             background:
-              "radial-gradient(circle at 18% 0%, rgba(244, 114, 182, 0.18), transparent 38%)," +
-              "radial-gradient(circle at 84% 14%, rgba(245, 193, 28, 0.10), transparent 32%)," +
-              "linear-gradient(180deg, #4a0d18 0%, #2c0610 70%, #1a040830 100%)",
+              "radial-gradient(circle at 15% 0%, rgba(59, 130, 246, 0.13), transparent 40%)," +
+              "radial-gradient(circle at 85% 12%, rgba(245, 193, 28, 0.09), transparent 32%)," +
+              "linear-gradient(180deg, #0d1640 0%, #080e2a 70%, #04091800 100%)",
           }}
         >
+          {/* PGA Championship logo badge */}
+          <div className="absolute right-4 top-4 sm:right-7 sm:top-7">
+            <div className="rounded-2xl bg-white/90 p-2 shadow-lg">
+              <Image
+                src={pgaLogo}
+                alt="2026 PGA Championship"
+                className="h-16 w-16 object-contain sm:h-20 sm:w-20"
+                width={80}
+                height={80}
+              />
+            </div>
+          </div>
+
           <div className="px-5 py-7 sm:px-8 sm:py-9">
             <div className="text-[11px] uppercase tracking-[0.32em] text-[#f5c11c]/85">
               Featured · Tier {featuredEvent.tier}
             </div>
-            <h2 className="mt-2 font-serif text-3xl font-semibold leading-[0.95] text-white sm:text-4xl md:text-5xl">
+            <h2 className="mt-2 pr-24 font-serif text-3xl font-semibold leading-[0.95] text-white sm:pr-28 sm:text-4xl md:text-5xl">
               {featuredEvent.name}
             </h2>
             <p className="mt-3 max-w-md text-sm text-white/70 sm:text-base">
-              The Run for the Roses headlines this stretch of the Decathlon. Build your stable, lock
-              your picks, and ride into Saturday at Churchill Downs.
+              The season&rsquo;s second major is here. Draft your six golfers, lock your picks
+              before Thursday, and battle it out at Aronimink.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <Link
-                href={`/events/${featuredEvent.slug}/entry`}
-                className="rounded-xl bg-[#f5c11c] px-4 py-2.5 text-sm font-semibold text-[#2c0610]"
+                href="/draft"
+                className="rounded-xl bg-[#f5c11c] px-4 py-2.5 text-sm font-semibold text-[#0d1640] transition-transform active:scale-[0.97]"
               >
-                Pick your stable →
+                Enter the Draft →
               </Link>
               <Link
-                href={`/events/${featuredEvent.slug}`}
-                className="rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-white/85"
+                href="/leaderboard"
+                className="rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-semibold text-white/85 transition-transform active:scale-[0.97]"
               >
-                Event details
+                Player Leaderboard
               </Link>
               {featuredEvent.starts_at && (
                 <span className="text-xs text-white/55">
-                  Post:{" "}
+                  Starts:{" "}
                   {new Date(featuredEvent.starts_at).toLocaleDateString(undefined, {
                     weekday: "long",
                     month: "short",
@@ -341,7 +351,7 @@ function HomeContent() {
               </p>
               <Link
                 href={`/events/${event.slug}`}
-                className="mt-4 inline-flex rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white"
+                className="mt-4 inline-flex rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-transform active:scale-[0.97]"
               >
                 Open event →
               </Link>

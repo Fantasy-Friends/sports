@@ -22,6 +22,8 @@
     --panel-top: 251 252 255;
     --panel-bottom: 245 247 252;
     --grid-line: 99 91 255;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   }
 
   html[data-theme="dark"] {
@@ -167,5 +169,30 @@
       radial-gradient(circle at 14% 0%, rgba(74, 222, 128, 0.22), transparent 32%),
       linear-gradient(180deg, #103e30 0%, #0c2a22 100%);
     border-bottom-color: #1e5240;
+  }
+
+  /* Hamburger drawer — slides in on open */
+  @keyframes slide-down-fade {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0);    }
+  }
+  .appshell-drawer {
+    animation: slide-down-fade 180ms var(--ease-out) both;
+  }
+
+  /* Entry animation for newly revealed items (e.g. lottery results) */
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0);   }
+  }
+  .animate-fade-up {
+    animation: fade-up 250ms var(--ease-out) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .appshell-drawer,
+    .animate-fade-up {
+      animation: none;
+    }
   }
 }

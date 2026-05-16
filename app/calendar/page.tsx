@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import AppShell from "@/components/AppShell";
 
@@ -20,7 +20,7 @@ type EventRow = {
 
 const TIER_STYLE: Record<number, { border: string; label: string; chip: string }> = {
   3: { border: "border-accent/40", label: "Tier 3 · 5x", chip: "bg-accent text-white" },
-  2: { border: "border-info/40", label: "Tier 2 · 2.5x", chip: "bg-info text-white" },
+  2: { border: "border-info/40", label: "Tier 2 · 2.5x", chip: "bg-info/20 text-info" },
   1: { border: "border-border/30", label: "Tier 1 · 1x", chip: "bg-surface/70 text-text" },
 };
 

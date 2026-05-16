@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentSeasonId } from "@/lib/events/resolve";
 import { getErrorMessage } from "@/lib/error";
 

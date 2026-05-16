@@ -3,7 +3,7 @@ import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { advanceDraftState } from "@/lib/draftOrder";
 import { getDraftOpenState } from "@/lib/draftState";
 import { getErrorMessage } from "@/lib/error";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const MAX_PICKS_PER_ENTRANT = 6;
 

@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const DRAFT_SESSION_COOKIE = "draft_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
@@ -14,6 +14,7 @@ export type EntrantIdentity = {
   is_admin: boolean;
   auto_draft_enabled: boolean | null;
   welcomed_at: string | null;
+  person_key: string | null;
 };
 
 type SessionRow = {
@@ -47,9 +48,23 @@ async function loadEntrantById(entrantId: string) {
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")
     .select(
-      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at",
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key",
     )
     .eq("entrant_id", entrantId)
+    .maybeSingle<EntrantRow>();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function loadEntrantByPersonKeyAndPool(personKey: string, poolId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("draft_entrants")
+    .select(
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key",
+    )
+    .eq("person_key", personKey)
+    .eq("pool_id", poolId)
     .maybeSingle<EntrantRow>();
 
   if (error) throw new Error(error.message);
@@ -106,20 +121,26 @@ export async function getAuthenticatedEntrant(poolId?: string) {
     return null;
   }
 
-  if (poolId && session.pool_id !== poolId) {
-    return null;
-  }
-
-  const entrant = await loadEntrantById(session.entrant_id);
-  if (!entrant) {
-    // Entrant was deleted out from under this session (admin removed the row,
-    // pool was reseeded, etc.). Clean up the session so the cookie stops
-    // pointing at nothing and the user gets a normal signed-out experience.
+  const sessionEntrant = await loadEntrantById(session.entrant_id);
+  if (!sessionEntrant) {
+    // Entrant was deleted out from under this session — clean up so the cookie
+    // stops pointing at nothing and the user gets a normal signed-out experience.
     await supabaseAdmin
       .from("draft_sessions")
       .delete()
       .eq("session_id", session.session_id);
     return null;
+  }
+
+  // If a specific pool was requested and it differs from the session's pool,
+  // use person_key to transparently resolve the same person's entrant row in
+  // the requested pool. This means one Google login works across all pools.
+  let entrant = sessionEntrant;
+  if (poolId && session.pool_id !== poolId) {
+    if (!sessionEntrant.person_key) return null;
+    const crossPoolEntrant = await loadEntrantByPersonKeyAndPool(sessionEntrant.person_key, poolId);
+    if (!crossPoolEntrant) return null;
+    entrant = crossPoolEntrant;
   }
 
   await supabaseAdmin
@@ -137,7 +158,7 @@ export async function getEntrantByEmail(email: string) {
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")
     .select(
-      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at",
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key",
     )
     .eq("google_email", email.toLowerCase())
     .limit(1)
@@ -168,7 +189,7 @@ export async function getEntrantBySlug(poolId: string, entrantSlug: string) {
     )
     .eq("pool_id", poolId)
     .eq("entrant_slug", entrantSlug)
-    .maybeSingle<EntrantRow & { access_code_hash: string }>();
+    .maybeSingle<EntrantRow & { access_code_hash: string | null }>();
 
   if (error) throw new Error(error.message);
   return data;

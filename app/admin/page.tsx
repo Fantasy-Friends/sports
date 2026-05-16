@@ -105,7 +105,7 @@ const TOURNAMENTS: TournamentOption[] = [
   { slug: "the-open", label: "The Open Championship" },
 ];
 
-type AdminTab = "draft" | "entrants" | "odds" | "scores" | "events";
+type AdminTab = "draft" | "entrants" | "odds" | "scores" | "events" | "lottery";
 
 const ADMIN_TABS: Array<{ id: AdminTab; label: string }> = [
   { id: "draft", label: "Draft" },
@@ -113,6 +113,7 @@ const ADMIN_TABS: Array<{ id: AdminTab; label: string }> = [
   { id: "odds", label: "Odds" },
   { id: "scores", label: "Scores" },
   { id: "events", label: "Events" },
+  { id: "lottery", label: "Lottery" },
 ];
 
 function defaultRoundParForTournament(tournamentSlug: string) {
@@ -130,7 +131,7 @@ function defaultRoundParForTournament(tournamentSlug: string) {
 
 export default function AdminPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
-  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("masters");
+  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("pga-championship");
   const [entrants, setEntrants] = useState<Entrant[]>([]);
   const [sessionEntrant, setSessionEntrant] = useState<Entrant | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
@@ -164,6 +165,19 @@ export default function AdminPage() {
   const [resettingPreDraft, setResettingPreDraft] = useState(false);
 
   const [activeTab, setActiveTab] = useState<AdminTab>("draft");
+
+  const [lotteryConfig, setLotteryConfig] = useState<{
+    status: string;
+    scheduled_at: string | null;
+    started_at: string | null;
+    result: unknown;
+  } | null>(null);
+  const [lotteryScheduledAt, setLotteryScheduledAt] = useState("");
+  const [lotteryLoading, setLotteryLoading] = useState(false);
+  const [lotteryStarting, setLotteryStarting] = useState(false);
+  const [lotteryResetting, setLotteryResetting] = useState(false);
+  const [lotteryMessage, setLotteryMessage] = useState<string | null>(null);
+  const [lotteryError, setLotteryError] = useState<string | null>(null);
 
   const poolId = useMemo(() => `${basePoolId}-${selectedTournament}`, [basePoolId, selectedTournament]);
 
@@ -463,6 +477,103 @@ export default function AdminPage() {
       setScoreSearchError(getErrorMessage(e, "Failed to sync scores"));
     } finally {
       setScoreSyncLoading(false);
+    }
+  }
+
+  // Lottery helpers — only run when the lottery tab is active
+  useEffect(() => {
+    if (activeTab !== "lottery") return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`/api/lottery?pool_id=${encodeURIComponent(poolId)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        setLotteryConfig(json.lottery ?? null);
+        if (json.lottery?.scheduled_at) {
+          const dt = new Date(json.lottery.scheduled_at);
+          const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 16);
+          setLotteryScheduledAt(local);
+        }
+      } catch { /* empty */ }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, poolId]);
+
+  async function saveLotterySchedule() {
+    setLotteryLoading(true);
+    setLotteryError(null);
+    setLotteryMessage(null);
+    try {
+      const scheduledAt = lotteryScheduledAt
+        ? new Date(lotteryScheduledAt).toISOString()
+        : null;
+      const res = await fetch("/api/lottery", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pool_id: poolId, scheduled_at: scheduledAt }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to save");
+      setLotteryConfig(json.lottery);
+      setLotteryMessage("Schedule saved and published to the lottery page.");
+    } catch (e: unknown) {
+      setLotteryError(getErrorMessage(e, "Failed to save lottery schedule."));
+    } finally {
+      setLotteryLoading(false);
+    }
+  }
+
+  async function resetLottery() {
+    if (!window.confirm("Reset the lottery? This clears all results and draft positions so you can simulate again.")) return;
+    setLotteryResetting(true);
+    setLotteryError(null);
+    setLotteryMessage(null);
+    try {
+      const res = await fetch(`/api/lottery?pool_id=${encodeURIComponent(poolId)}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to reset lottery");
+      setLotteryConfig((prev) =>
+        prev ? { ...prev, result: null, started_at: null, status: "pending" } : null
+      );
+      setLotteryMessage("Lottery reset. Draft positions cleared — ready to run again.");
+    } catch (e: unknown) {
+      setLotteryError(getErrorMessage(e, "Failed to reset lottery."));
+    } finally {
+      setLotteryResetting(false);
+    }
+  }
+
+  async function startLottery() {
+    if (!window.confirm("Run the lottery now? This will shuffle picks and write draft positions to all entrants.")) return;
+    setLotteryStarting(true);
+    setLotteryError(null);
+    setLotteryMessage(null);
+    try {
+      const res = await fetch("/api/lottery/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pool_id: poolId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to start lottery");
+      setLotteryMessage(
+        `Done! ${json.entrant_count} entrants assigned draft positions. The lottery page is now live.`
+      );
+      setLotteryConfig((prev) => ({ ...(prev ?? { status: "completed", scheduled_at: null, started_at: null }), result: json.result, status: "completed" }));
+    } catch (e: unknown) {
+      setLotteryError(getErrorMessage(e, "Failed to run lottery."));
+    } finally {
+      setLotteryStarting(false);
     }
   }
 
@@ -932,6 +1043,139 @@ export default function AdminPage() {
           )}
 
           {activeTab === "events" && <AdminEventFinalizer />}
+
+          {activeTab === "lottery" && (
+            <section className="space-y-4">
+              <div className="soft-card rounded-2xl border border-border bg-surface p-4 sm:p-5">
+                <h2 className="text-sm font-semibold">Draft Lottery</h2>
+                <p className="mt-1 text-xs text-muted">
+                  Schedule the lottery and start it live. Once started, draft positions are
+                  assigned instantly and the lottery page plays the reveal animation for everyone
+                  watching.
+                </p>
+
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-muted mb-1">
+                      Pool
+                    </label>
+                    <div className="rounded-lg border border-border/60 bg-bg/60 px-3 py-2 text-sm text-muted">
+                      {poolId}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-muted mb-1">
+                      Scheduled date &amp; time (PST)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={lotteryScheduledAt}
+                      onChange={(e) => setLotteryScheduledAt(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm"
+                    />
+                    <p className="mt-1 text-[11px] text-muted">
+                      Enter time in Pacific Time. The lottery page shows PST, CST, and EST automatically.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => void saveLotterySchedule()}
+                      disabled={lotteryLoading}
+                      className={[
+                        "rounded-lg px-4 py-2 text-sm font-semibold",
+                        lotteryLoading
+                          ? "bg-border text-muted"
+                          : "border border-border bg-bg text-text hover:bg-surface",
+                      ].join(" ")}
+                    >
+                      {lotteryLoading ? "Saving…" : "Publish Schedule"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void startLottery()}
+                      disabled={lotteryStarting}
+                      className={[
+                        "rounded-lg px-4 py-2 text-sm font-semibold",
+                        lotteryStarting ? "bg-border text-muted" : "bg-accent text-white",
+                      ].join(" ")}
+                    >
+                      {lotteryStarting ? "Running lottery…" : "▶ Start Lottery"}
+                    </button>
+                  </div>
+                </div>
+
+                {lotteryMessage && (
+                  <p className="mt-3 text-xs text-accent">{lotteryMessage}</p>
+                )}
+                {lotteryError && (
+                  <p className="mt-3 text-xs text-danger">{lotteryError}</p>
+                )}
+              </div>
+
+              {lotteryConfig && (
+                <div className="soft-card rounded-2xl border border-border bg-surface p-4 sm:p-5">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted mb-3">
+                    Current Status
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-lg border border-border/60 bg-bg/40 px-3 py-2.5">
+                      <div className="text-[11px] uppercase tracking-wide text-muted">Status</div>
+                      <div className="mt-1 text-sm font-semibold capitalize">{lotteryConfig.status}</div>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-bg/40 px-3 py-2.5">
+                      <div className="text-[11px] uppercase tracking-wide text-muted">Scheduled</div>
+                      <div className="mt-1 text-sm font-semibold">
+                        {lotteryConfig.scheduled_at
+                          ? new Date(lotteryConfig.scheduled_at).toLocaleString()
+                          : "Not set"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-bg/40 px-3 py-2.5">
+                      <div className="text-[11px] uppercase tracking-wide text-muted">Started</div>
+                      <div className="mt-1 text-sm font-semibold">
+                        {lotteryConfig.started_at
+                          ? new Date(lotteryConfig.started_at).toLocaleString()
+                          : "Not yet"}
+                      </div>
+                    </div>
+                  </div>
+                  {Boolean(lotteryConfig.result) && (
+                    <>
+                      <p className="mt-3 text-xs text-accent">
+                        Results are live — visit{" "}
+                        <a href="/lottery" className="underline">
+                          /lottery
+                        </a>{" "}
+                        to see the animation.
+                      </p>
+                      <div className="mt-3 border-t border-border/40 pt-3 flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void resetLottery()}
+                          disabled={lotteryResetting}
+                          className={[
+                            "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                            lotteryResetting
+                              ? "bg-border text-muted cursor-not-allowed"
+                              : "bg-danger/10 text-danger hover:bg-danger/20",
+                          ].join(" ")}
+                        >
+                          {lotteryResetting ? "Resetting…" : "↺ Reset Lottery"}
+                        </button>
+                        <p className="text-[11px] text-muted">
+                          Clears results and draft positions so you can run the lottery again.
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
         </>
       )}
     </AppShell>

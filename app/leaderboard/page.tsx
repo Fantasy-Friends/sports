@@ -43,7 +43,7 @@ type TournamentMetaOption = {
 
 export default function PlayerLeaderboardPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
-  const [selectedTournament, setSelectedTournament] = useState("masters");
+  const [selectedTournament, setSelectedTournament] = useState("pga-championship");
   const [selectedEntrant, setSelectedEntrant] = useState("");
   const [activeView, setActiveView] = useState<"standings" | "scorecard">("standings");
   const [availableTournaments, setAvailableTournaments] = useState<TournamentMetaOption[]>(

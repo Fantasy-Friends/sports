@@ -34,9 +34,39 @@ export const TOURNAMENTS: TournamentOption[] = [
       timezone: "America/Chicago",
     },
   },
-  { slug: "pga-championship", label: "PGA Championship" },
-  { slug: "us-open", label: "U.S. Open" },
-  { slug: "the-open", label: "The Open Championship" },
+  {
+    slug: "pga-championship",
+    label: "PGA Championship",
+    schedule: {
+      startDate: "2026-05-14",
+      endDate: "2026-05-17",
+      dailyStartHour: 6,
+      dailyEndHour: 21,
+      timezone: "America/New_York",
+    },
+  },
+  {
+    slug: "us-open",
+    label: "U.S. Open",
+    schedule: {
+      startDate: "2026-06-18",
+      endDate: "2026-06-21",
+      dailyStartHour: 6,
+      dailyEndHour: 21,
+      timezone: "America/New_York",
+    },
+  },
+  {
+    slug: "the-open",
+    label: "The Open Championship",
+    schedule: {
+      startDate: "2026-07-16",
+      endDate: "2026-07-19",
+      dailyStartHour: 6,
+      dailyEndHour: 21,
+      timezone: "Europe/London",
+    },
+  },
 ];
 
 function getTournamentDateParts(date: Date, timezone: string) {
@@ -64,6 +94,14 @@ export function isTournamentPollingActive(slug: TournamentSlug, now = new Date()
   const { dateStr, hour } = getTournamentDateParts(now, timezone);
 
   return dateStr >= startDate && dateStr <= endDate && hour >= dailyStartHour && hour < dailyEndHour;
+}
+
+export function isTournamentEnded(slug: TournamentSlug, now = new Date()): boolean {
+  const tournament = TOURNAMENTS.find((t) => t.slug === slug);
+  if (!tournament?.schedule) return false;
+  const { endDate, timezone } = tournament.schedule;
+  const { dateStr } = getTournamentDateParts(now, timezone);
+  return dateStr > endDate;
 }
 
 export function isTournamentSlug(value: string): value is TournamentSlug {

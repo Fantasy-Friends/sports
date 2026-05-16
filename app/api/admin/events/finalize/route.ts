@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getEventBySlug, getCurrentSeasonId } from "@/lib/events/resolve";
 import { getEventHandler } from "@/lib/events/registry";
@@ -119,6 +119,18 @@ export async function POST(request: NextRequest) {
       .update({ status: "final", updated_at: new Date().toISOString() })
       .eq("event_id", event.event_id);
     if (updErr) throw new Error(updErr.message);
+
+    // Clear draft positions after a golf-draft event finalizes so entrants
+    // start fresh for the next event's lottery.
+    if (event.event_type === "golf-draft" && event.legacy_pool_id) {
+      const { error: clearPosErr } = await supabaseAdmin
+        .from("draft_entrants")
+        .update({ draft_position: null })
+        .eq("pool_id", event.legacy_pool_id);
+      if (clearPosErr) {
+        console.warn("Failed to clear draft positions after finalize:", clearPosErr.message);
+      }
+    }
 
     // Fire event_final notification only on the first finalization. Re-running
     // finalize (to recompute after a data fix, etc.) should not re-broadcast.
