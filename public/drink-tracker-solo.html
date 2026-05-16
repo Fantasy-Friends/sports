@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#080a0f">
+<title>Drink Tracker · Solo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: #080a0f; color: #e2e0da; font-family: 'DM Mono', 'Courier New', monospace; min-height: 100vh; overscroll-behavior: none; }
+  body { max-width: 460px; margin: 0 auto; padding-bottom: env(safe-area-inset-bottom); }
+  input, select, button, textarea { font-family: inherit; }
+  input:focus, select:focus { border-color: #3b82f6 !important; }
+
+.header { padding: 18px 16px 0; border-bottom: 1px solid #111318; position: sticky; top: 0; background: #080a0f; z-index: 10; }
+.header-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 10px; }
+.eyebrow { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #4b5563; }
+.title { font-size: 22px; color: #f0ede8; margin-top: 4px; font-family: Georgia, serif; font-weight: 400; }
+.submeta { font-size: 11px; color: #4b5563; margin-top: 2px; }
+
+.risk-badge { border-radius: 8px; padding: 7px 11px; text-align: center; min-width: 86px; flex-shrink: 0; }
+.risk-label { font-size: 9px; color: #4b5563; margin-bottom: 2px; letter-spacing: 0.1em; }
+.risk-value { font-size: 12px; font-weight: bold; }
+
+.tabs { display: flex; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: 1; min-width: 70px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #4b5563; padding: 11px 4px; font-size: 11px; cursor: pointer; letter-spacing: 0.06em; text-transform: uppercase; transition: all 0.15s; white-space: nowrap; }
+.tab.active { background: #1a1f2b; border-bottom-color: #3b82f6; color: #e2e0da; }
+
+.sub-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.sub-tab { background: #0f1117; border: 1px solid #1e2433; color: #6b7280; padding: 7px 12px; font-size: 11px; border-radius: 6px; cursor: pointer; flex: 1; }
+.sub-tab.active { background: #1e3a8a; color: white; border-color: #1e3a8a; }
+
+.content { padding: 16px; }
+
+.card { background: #0f1117; border: 1px solid #111318; border-radius: 14px; padding: 18px 18px 14px; margin-bottom: 12px; }
+.card-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.card-row .card { flex: 1; margin-bottom: 0; padding: 14px 12px; text-align: center; }
+
+.stat-eyebrow { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: #4b5563; margin-bottom: 6px; }
+.stat-value { font-size: 26px; font-weight: bold; line-height: 1; }
+.stat-sub { font-size: 10px; color: #6b7280; margin-top: 4px; }
+
+.bac-card { text-align: center; padding: 22px 18px 16px; }
+.bac-value { font-size: 56px; font-weight: bold; line-height: 1; margin-bottom: 8px; }
+.bac-bar { background: #1a1f2b; border-radius: 4px; height: 5px; margin: 0 0 12px; overflow: hidden; }
+.bac-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.bac-stats { display: flex; justify-content: center; gap: 22px; font-size: 11px; color: #6b7280; }
+.bac-stats strong { color: #d1d5db; font-weight: normal; }
+
+.substances-card { padding: 14px 16px; }
+.substances-card .stat-eyebrow { margin-bottom: 10px; }
+
+.drug-tag { background: #0f1117; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+.drug-tag-info { flex: 1; min-width: 0; }
+.drug-tag-name { font-size: 13px; color: #e2e0da; }
+.drug-tag-sub { font-size: 11px; color: #4b5563; margin-top: 2px; }
+.drug-tag-bar { height: 3px; background: #1a1f2b; border-radius: 2px; margin-top: 5px; width: 120px; max-width: 100%; }
+.drug-tag-bar-fill { height: 100%; border-radius: 2px; }
+.drug-type-pill { font-size: 9px; border-radius: 4px; padding: 3px 6px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.warning { border-radius: 7px; padding: 9px 12px; margin-top: 8px; font-size: 11px; line-height: 1.5; }
+.warning.benzo { background: #2a1206; border: 1px solid #9a3412; color: #fb923c; }
+.warning.stim { background: #0c1a3a; border: 1px solid #1e3a8a; color: #60a5fa; }
+.warning.thc { background: #0a1f0a; border: 1px solid #14532d; color: #4ade80; }
+.warning.dehydrate { background: #2a1a06; border: 1px solid #92400e; color: #fbbf24; }
+
+.row { display: flex; gap: 8px; }
+.btn { border-radius: 8px; padding: 12px; font-size: 12px; cursor: pointer; border: none; flex: 1; }
+.btn-primary { background: #1e3a8a; color: white; }
+.btn-secondary { background: transparent; border: 1px solid #1e2433; color: #6b7280; }
+.btn-water { background: #0e4d6b; color: #67e8f9; }
+.btn-caffeine { background: #422006; color: #fdba74; }
+.btn-reset { width: 100%; margin-top: 10px; font-size: 11px; color: #374151; border: 1px solid #111318; background: transparent; border-radius: 8px; padding: 10px; cursor: pointer; }
+
+.empty { text-align: center; color: #374151; padding: 28px 0; font-size: 12px; }
+
+.entry { background: #0f1117; border: 1px solid #111318; border-radius: 10px; padding: 11px 14px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+.entry-name { font-size: 13px; color: #e2e0da; }
+.entry-sub { font-size: 11px; color: #4b5563; margin-top: 2px; }
+.entry-right { display: flex; align-items: center; gap: 8px; }
+.entry-meta { font-size: 11px; color: #6b7280; }
+.x-btn { background: none; border: none; color: #374151; font-size: 18px; cursor: pointer; padding: 0 4px; }
+
+.add-dashed { width: 100%; background: transparent; border: 1px dashed #1e2433; color: #4b5563; border-radius: 10px; padding: 13px; font-size: 12px; cursor: pointer; }
+
+.form-card { background: #0f1117; border: 1px solid #1e2433; border-radius: 12px; padding: 14px; }
+.form-label { font-size: 10px; color: #4b5563; margin-bottom: 8px; letter-spacing: 0.1em; text-transform: uppercase; }
+.presets { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.preset { background: #1a1f2b; border: 1px solid #1e2433; color: #9ca3af; border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
+.input { background: #0a0c11; border: 1px solid #1e2433; color: #e2e0da; border-radius: 8px; padding: 9px 12px; font-size: 13px; outline: none; width: 100%; }
+.field-stack { display: flex; flex-direction: column; gap: 8px; }
+.mini-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #4b5563; margin-bottom: 4px; display: block; }
+
+.recents-bar { display: flex; gap: 5px; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.recents-bar::-webkit-scrollbar { display: none; }
+.recent-chip { background: #0a0c11; border: 1px solid #1e2433; color: #9ca3af; border-radius: 6px; padding: 6px 10px; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.recent-chip:hover { background: #1a1f2b; }
+
+/* Body / Composition tab */
+.body-photo-wrap { position: relative; background: #0f1117; border: 1px solid #111318; border-radius: 14px; padding: 14px; margin-bottom: 12px; text-align: center; }
+.body-photo { width: 100%; max-width: 260px; height: 280px; object-fit: cover; border-radius: 10px; cursor: pointer; background: #1a1f2b; }
+.body-silhouette { width: 100%; max-width: 200px; margin: 0 auto; cursor: pointer; }
+.photo-upload-btn { background: transparent; border: 1px dashed #1e2433; color: #6b7280; border-radius: 8px; padding: 8px 12px; font-size: 11px; cursor: pointer; margin-top: 10px; }
+.photo-edit-btn { position: absolute; top: 10px; right: 10px; background: rgba(15,17,23,0.9); border: 1px solid #1e2433; color: #9ca3af; border-radius: 6px; padding: 5px 9px; font-size: 10px; cursor: pointer; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.composition-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.comp-cell { background: #0f1117; border: 1px solid #111318; border-radius: 10px; padding: 12px; }
+.comp-cell-label { font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: #4b5563; margin-bottom: 4px; }
+.comp-cell-value { font-size: 18px; font-weight: bold; color: #e2e0da; line-height: 1.1; }
+.comp-cell-sub { font-size: 10px; color: #6b7280; margin-top: 3px; }
+
+.body-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+.body-modal-bg.show { display: flex; }
+.body-modal { background: #0f1117; border: 1px solid #1e2433; border-radius: 14px; padding: 20px; max-width: 360px; width: 100%; max-height: 90vh; overflow-y: auto; }
+.body-modal h3 { font-family: Georgia, serif; font-size: 18px; font-weight: 400; margin-bottom: 14px; color: #f0ede8; }
+.body-modal .row { margin-top: 12px; }
+
+/* Timeline */
+.timeline-wrap { background: #0f1117; border: 1px solid #111318; border-radius: 12px; padding: 14px; overflow-x: auto; }
+.timeline-svg { display: block; min-width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 10px; }
+.legend-item { display: flex; align-items: center; gap: 5px; color: #9ca3af; }
+.legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+.footer { font-size: 9px; color: #1a1f2b; text-align: center; padding: 0 20px 24px; line-height: 1.7; }
+
+/* Composition bar in body view */
+.comp-bar { height: 6px; background: #1a1f2b; border-radius: 3px; overflow: hidden; display: flex; margin: 8px 0 14px; }
+.comp-bar-seg { height: 100%; }
+.comp-breakdown { font-size: 11px; color: #9ca3af; }
+.comp-breakdown div { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+.comp-color { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+/* Hide file input */
+.file-hidden { position: absolute; opacity: 0; pointer-events: none; }
+</style>
+
+</head>
+<body>
+<div id="app"></div>
+<input type="file" id="photo-input" class="file-hidden" accept="image/*">
+
+<div class="body-modal-bg" id="body-modal-bg">
+  <div class="body-modal" id="body-modal-content"></div>
+</div>
+
+<script>
+// ─── Config ─────────────────────────────────────────────────────────────────
+const PROFILE = {
+  name: 'Chris',
+  weightLbs: 265,
+  weightKg: 265 * 0.453592,
+  sex: 'male',
+};
+const WIDMARK_R = 0.68;
+const ALCOHOL_METABOLISM = 0.015; // BAC/hr
+const CAFFEINE_HALF_LIFE = 5; // hours
+const HYDRATION_GOAL_OZ = 100; // daily
+
+const DRUG_PRESETS = [
+  { name: 'Vyvanse 30mg', type: 'stimulant', severity: 2, duration: 12 },
+  { name: 'Vyvanse 20mg', type: 'stimulant', severity: 1, duration: 10 },
+  { name: 'Vyvanse 40mg', type: 'stimulant', severity: 2, duration: 12 },
+  { name: 'Vyvanse 60mg', type: 'stimulant', severity: 3, duration: 14 },
+  { name: 'Adderall 10mg', type: 'stimulant', severity: 1, duration: 8 },
+  { name: 'Adderall 20mg', type: 'stimulant', severity: 2, duration: 10 },
+  { name: 'Lorazepam 0.5mg', type: 'benzo', severity: 2, duration: 6 },
+  { name: 'Lorazepam 1mg', type: 'benzo', severity: 3, duration: 8 },
+  { name: 'Lorazepam 2mg', type: 'benzo', severity: 4, duration: 10 },
+  { name: 'Xanax 0.5mg', type: 'benzo', severity: 2, duration: 5 },
+  { name: 'Xanax 1mg', type: 'benzo', severity: 3, duration: 6 },
+  { name: 'THC 5mg edible', type: 'thc', severity: 1, duration: 4 },
+  { name: 'THC 10mg edible', type: 'thc', severity: 2, duration: 6 },
+  { name: 'THC 25mg edible', type: 'thc', severity: 3, duration: 8 },
+  { name: 'Cannabis (smoked)', type: 'thc', severity: 2, duration: 3 },
+];
+
+const ALCOHOL_PRESETS = [
+  { name: 'Beer (12oz/5%)', oz: 12, abv: 0.05 },
+  { name: 'IPA (16oz/7%)', oz: 16, abv: 0.07 },
+  { name: 'Light Beer (12oz/4.2%)', oz: 12, abv: 0.042 },
+  { name: 'Wine (5oz/13%)', oz: 5, abv: 0.13 },
+  { name: 'Cocktail (1.5oz)', oz: 1.5, abv: 0.40 },
+  { name: 'Double (3oz)', oz: 3, abv: 0.40 },
+  { name: 'Vodka Soda', oz: 1.5, abv: 0.40 },
+  { name: 'Shot (1oz)', oz: 1.0, abv: 0.40 },
+  { name: 'Hard Seltzer', oz: 12, abv: 0.05 },
+];
+
+const WATER_PRESETS = [
+  { name: 'Glass (8oz)', oz: 8 },
+  { name: 'Bottle (16oz)', oz: 16 },
+  { name: 'Big bottle (20oz)', oz: 20 },
+  { name: 'Yeti (32oz)', oz: 32 },
+  { name: 'Sip (4oz)', oz: 4 },
+];
+
+const CAFFEINE_PRESETS = [
+  { name: 'Coffee (8oz)', mg: 95, oz: 8 },
+  { name: 'Drip coffee (12oz)', mg: 140, oz: 12 },
+  { name: 'Espresso shot', mg: 64, oz: 1 },
+  { name: 'Cold brew (12oz)', mg: 200, oz: 12 },
+  { name: 'Red Bull (8.4oz)', mg: 80, oz: 8.4 },
+  { name: 'Monster (16oz)', mg: 160, oz: 16 },
+  { name: 'Black tea (8oz)', mg: 50, oz: 8 },
+  { name: 'Green tea (8oz)', mg: 30, oz: 8 },
+  { name: 'Yerba Mate (16oz)', mg: 80, oz: 16 },
+  { name: 'Diet Coke (12oz)', mg: 46, oz: 12 },
+];
+
+const COLORS = {
+  alcohol: '#ef4444',
+  caffeine: '#fb923c',
+  water: '#22d3ee',
+  benzo: '#f97316',
+  stimulant: '#3b82f6',
+  thc: '#22c55e',
+  other: '#9ca3af',
+};
+
+// ─── State ──────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'chris-tracker-v2';
+
+let state = {
+  drinks: [],          // {id, category: 'alcohol'|'water'|'caffeine', name, oz, abv, pct, mg, time}
+  drugs: [],
+  tab: 'dashboard',    // dashboard, drinks, substances, body, timeline
+  drinkSubTab: 'alcohol',  // alcohol, water, caffeine
+  showDrinkForm: false,
+  showDrugForm: false,
+  newDrink: { name: '', oz: 1.5, abv: 0.40, pct: 1.0, mg: 95, time: '' },
+  newDrug: { name: '', type: 'stimulant', severity: 2, duration: 12, time: '' },
+  // last successful entry, per category — used to prefill form
+  lastByCategory: { alcohol: null, water: null, caffeine: null, drug: null },
+  // recents: last 5 unique names per category
+  recents: { alcohol: [], water: [], caffeine: [], drug: [] },
+  photoData: null,    // base64
+};
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    state.drinks = saved.drinks || [];
+    state.drugs = saved.drugs || [];
+    state.lastByCategory = saved.lastByCategory || { alcohol: null, water: null, caffeine: null, drug: null };
+    state.recents = saved.recents || { alcohol: [], water: [], caffeine: [], drug: [] };
+    state.photoData = saved.photoData || null;
+  } catch (e) { console.error('load fail', e); }
+}
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      drinks: state.drinks,
+      drugs: state.drugs,
+      lastByCategory: state.lastByCategory,
+      recents: state.recents,
+      photoData: state.photoData,
+    }));
+  } catch (e) { console.error('save fail', e); }
+}
+
+function setState(partial) {
+  Object.assign(state, partial);
+  saveState();
+  render();
+}
+
+// ─── Utils ──────────────────────────────────────────────────────────────────
+function parseTime(str) {
+  if (!str) return new Date();
+  const [h, m] = str.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  // If time is in the future, assume yesterday
+  if (d > new Date()) d.setDate(d.getDate() - 1);
+  return d;
+}
+
+function nowHHMM() {
+  const n = new Date();
+  return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
+}
+
+function alcoholGramsInBody(now) {
+  // Sum of grams of ethanol remaining, accounting for metabolism
+  let totalGrams = 0;
+  for (const d of state.drinks.filter(x => x.category === 'alcohol')) {
+    const t = parseTime(d.time);
+    const hrs = Math.max(0, (now - t) / 3600000);
+    const consumed = d.oz * 29.5735 * d.abv * d.pct * 0.789;
+    // Metabolism: 0.015 BAC/hr = 0.015 * weight_kg * r * 10 grams/hr
+    const metabRate = ALCOHOL_METABOLISM * PROFILE.weightKg * WIDMARK_R * 10;
+    const remaining = Math.max(0, consumed - metabRate * hrs);
+    totalGrams += remaining;
+  }
+  return totalGrams;
+}
+
+function calcBAC(now) {
+  const g = alcoholGramsInBody(now);
+  return g / (PROFILE.weightKg * WIDMARK_R * 10);
+}
+
+function caffeineMgInBody(now) {
+  let total = 0;
+  for (const d of state.drinks.filter(x => x.category === 'caffeine')) {
+    const t = parseTime(d.time);
+    const hrs = Math.max(0, (now - t) / 3600000);
+    const remaining = d.mg * Math.pow(0.5, hrs / CAFFEINE_HALF_LIFE);
+    total += remaining;
+  }
+  return total;
+}
+
+function waterOzToday(now) {
+  // Sum waters from last 18 hours
+  let total = 0;
+  for (const d of state.drinks.filter(x => x.category === 'water')) {
+    const t = parseTime(d.time);
+    const hrs = (now - t) / 3600000;
+    if (hrs >= 0 && hrs < 18) total += d.oz;
+  }
+  return total;
+}
+
+function activeDrugs(now) {
+  return state.drugs.filter(d => {
+    const t = parseTime(d.time);
+    const hrs = (now - t) / 3600000;
+    return hrs >= 0 && hrs < d.duration;
+  });
+}
+
+function riskLevel(bac, drugs) {
+  const benzoSev = drugs.filter(d => d.type === 'benzo').reduce((s, d) => s + d.severity, 0);
+  const thcSev = drugs.filter(d => d.type === 'thc').reduce((s, d) => s + d.severity, 0);
+  let score = bac * 40 + benzoSev * 1.5 + thcSev * 0.8;
+  if (bac > 0 && benzoSev > 0) score += benzoSev * bac * 30;
+  if (score === 0) return { label: 'Clear', color: '#22c55e' };
+  if (score < 1.5) return { label: 'Low', color: '#84cc16' };
+  if (score < 3) return { label: 'Moderate', color: '#eab308' };
+  if (score < 5) return { label: 'Elevated', color: '#f97316' };
+  return { label: 'High', color: '#ef4444' };
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function pushRecent(category, item) {
+  const list = state.recents[category] || [];
+  // Remove duplicates by name
+  const filtered = list.filter(x => x.name !== item.name);
+  filtered.unshift(item);
+  state.recents[category] = filtered.slice(0, 6);
+}
+
+// ─── Image processing ──────────────────────────────────────────────────────
+function handlePhotoUpload(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxW = 400;
+      const scale = Math.min(1, maxW / img.width);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const data = canvas.toDataURL('image/jpeg', 0.8);
+      setState({ photoData: data });
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─── Renderers ──────────────────────────────────────────────────────────────
+function renderDrugTag(drug, now, showRemove) {
+  const t = parseTime(drug.time);
+  const hrs = Math.max(0, (now - t) / 3600000);
+  const pct = Math.max(0, 1 - hrs / drug.duration);
+  const color = COLORS[drug.type] || '#9ca3af';
+  return `
+    <div class="drug-tag" style="border: 1px solid ${color}44;">
+      <div class="drug-tag-info">
+        <div class="drug-tag-name">${esc(drug.name)}</div>
+        <div class="drug-tag-sub">${esc(drug.time)} · ${hrs.toFixed(1)}h ago · ${Math.round(pct * 100)}% active</div>
+        <div class="drug-tag-bar"><div class="drug-tag-bar-fill" style="width:${pct * 100}%; background:${color};"></div></div>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <div class="drug-type-pill" style="color:${color}; background:${color}22;">${esc(drug.type)}</div>
+        ${showRemove ? `<button class="x-btn" data-action="remove-drug" data-id="${drug.id}">×</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderDashboard(now) {
+  const bac = calcBAC(now);
+  const active = activeDrugs(now);
+  const risk = riskLevel(bac, active);
+  const totalStd = state.drinks.filter(x => x.category === 'alcohol').reduce((s, d) => s + (d.oz * d.abv * d.pct) / 0.6, 0);
+  const clearTime = bac > 0 ? new Date(now.getTime() + (bac / ALCOHOL_METABOLISM) * 3600000) : null;
+  const caffMg = caffeineMgInBody(now);
+  const waterOz = waterOzToday(now);
+
+  const alcoholCount = state.drinks.filter(x => x.category === 'alcohol').length;
+  const hydrationGap = Math.max(0, alcoholCount - Math.floor(waterOz / 8));
+
+  const warnings = [];
+  if (bac > 0) {
+    if (active.some(d => d.type === 'benzo')) warnings.push(`<div class="warning benzo">⚠ Benzo + alcohol — effects significantly amplified</div>`);
+    if (active.some(d => d.type === 'stimulant')) warnings.push(`<div class="warning stim">ℹ Stimulant may mask alcohol impairment</div>`);
+    if (active.some(d => d.type === 'thc')) warnings.push(`<div class="warning thc">ℹ THC + alcohol intensifies impairment</div>`);
+  }
+  if (alcoholCount >= 3 && hydrationGap >= 2) {
+    warnings.push(`<div class="warning dehydrate">💧 Behind on hydration — ${hydrationGap} more glass${hydrationGap > 1 ? 'es' : ''} recommended</div>`);
+  }
+
+  return `
+    <div class="card bac-card">
+      <div class="stat-eyebrow">Estimated BAC</div>
+      <div class="bac-value" style="color:${risk.color}; text-shadow: 0 0 24px ${risk.color}55;">${bac.toFixed(3)}</div>
+      <div class="bac-bar"><div class="bac-bar-fill" style="width:${Math.min(100, bac / 0.15 * 100)}%; background:${risk.color};"></div></div>
+      <div class="bac-stats">
+        <div><strong>${totalStd.toFixed(1)}</strong> std drinks</div>
+        <div>${clearTime ? `<strong>${clearTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong> clear` : '<span style="color:#22c55e;">Clear</span>'}</div>
+      </div>
+    </div>
+
+    <div class="card-row">
+      <div class="card">
+        <div class="stat-eyebrow">☕ Caffeine</div>
+        <div class="stat-value" style="color:${COLORS.caffeine};">${Math.round(caffMg)}<span style="font-size:12px; color:#6b7280;">mg</span></div>
+        <div class="stat-sub">active</div>
+      </div>
+      <div class="card">
+        <div class="stat-eyebrow">💧 Water</div>
+        <div class="stat-value" style="color:${COLORS.water};">${Math.round(waterOz)}<span style="font-size:12px; color:#6b7280;">oz</span></div>
+        <div class="stat-sub">${Math.round(waterOz / HYDRATION_GOAL_OZ * 100)}% of goal</div>
+      </div>
+    </div>
+
+    ${active.length > 0 ? `
+      <div class="card substances-card">
+        <div class="stat-eyebrow">Active Substances</div>
+        ${active.map(d => renderDrugTag(d, now, false)).join('')}
+        ${warnings.join('')}
+      </div>
+    ` : warnings.length ? `<div class="card substances-card">${warnings.join('')}</div>` : ''}
+
+    <div class="row" style="margin-bottom:8px;">
+      <button class="btn btn-primary" data-action="goto-add-drink" data-cat="alcohol">+ Drink</button>
+      <button class="btn btn-water" data-action="goto-add-drink" data-cat="water">+ Water</button>
+    </div>
+    <div class="row">
+      <button class="btn btn-caffeine" data-action="goto-add-drink" data-cat="caffeine">+ Caffeine</button>
+      <button class="btn btn-secondary" data-action="goto-add-drug">+ Substance</button>
+    </div>
+
+    ${(state.drinks.length > 0 || state.drugs.length > 0) ? `
+      <button class="btn-reset" data-action="reset-session">Reset all entries</button>
+    ` : ''}
+  `;
+}
+
+function renderRecentsBar(category) {
+  const recents = state.recents[category] || [];
+  if (!recents.length) return '';
+  return `
+    <div class="recents-bar">
+      ${recents.map((r, i) => `<button class="recent-chip" data-action="apply-recent" data-cat="${category}" data-i="${i}">↺ ${esc(r.name)}</button>`).join('')}
+    </div>
+  `;
+}
+
+function renderDrinkForm(category) {
+  const d = state.newDrink;
+  const presets = category === 'alcohol' ? ALCOHOL_PRESETS : category === 'water' ? WATER_PRESETS : CAFFEINE_PRESETS;
+  const color = COLORS[category];
+
+  return `
+    <div class="form-card">
+      ${renderRecentsBar(category)}
+      <div class="form-label">Presets</div>
+      <div class="presets">
+        ${presets.map((p, i) => `<button class="preset" data-action="apply-drink-preset" data-cat="${category}" data-i="${i}" style="border-color:${color}44; color:${color};">${esc(p.name)}</button>`).join('')}
+      </div>
+      <div class="field-stack">
+        <input class="input" placeholder="${category === 'alcohol' ? 'Drink name' : category === 'water' ? 'Water source (optional)' : 'Coffee, energy drink, etc.'}" value="${esc(d.name)}" data-field="newDrink.name" />
+        ${category === 'alcohol' ? `
+          <div class="row">
+            <div style="flex:1;"><label class="mini-label">oz</label><input class="input" type="number" step="0.1" value="${d.oz}" data-field="newDrink.oz" /></div>
+            <div style="flex:1;"><label class="mini-label">ABV</label><input class="input" type="number" step="0.01" value="${d.abv}" data-field="newDrink.abv" /></div>
+          </div>
+        ` : category === 'water' ? `
+          <div><label class="mini-label">oz</label><input class="input" type="number" step="1" value="${d.oz}" data-field="newDrink.oz" /></div>
+        ` : `
+          <div class="row">
+            <div style="flex:1;"><label class="mini-label">Caffeine mg</label><input class="input" type="number" value="${d.mg}" data-field="newDrink.mg" /></div>
+            <div style="flex:1;"><label class="mini-label">oz</label><input class="input" type="number" value="${d.oz}" data-field="newDrink.oz" /></div>
+          </div>
+        `}
+        <div class="row">
+          <div style="flex:1;"><label class="mini-label">Time</label><input class="input" placeholder="HH:MM" value="${esc(d.time)}" data-field="newDrink.time" /></div>
+          ${category === 'alcohol' ? `
+            <div style="flex:1;"><label class="mini-label">Consumed</label>
+              <select class="input" data-field="newDrink.pct">
+                <option value="1" ${d.pct == 1 ? 'selected' : ''}>Full</option>
+                <option value="0.75" ${d.pct == 0.75 ? 'selected' : ''}>¾</option>
+                <option value="0.5" ${d.pct == 0.5 ? 'selected' : ''}>½</option>
+                <option value="0.25" ${d.pct == 0.25 ? 'selected' : ''}>¼</option>
+              </select>
+            </div>
+          ` : ''}
+        </div>
+        <div class="row" style="margin-top:4px;">
+          <button class="btn btn-primary" data-action="add-drink" data-cat="${category}">Log</button>
+          <button class="btn btn-secondary" data-action="cancel-drink">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDrugForm() {
+  const d = state.newDrug;
+  return `
+    <div class="form-card">
+      ${renderRecentsBar('drug')}
+      <div class="form-label">Common presets</div>
+      <div class="presets">
+        ${DRUG_PRESETS.map((p, i) => {
+          const color = COLORS[p.type];
+          return `<button class="preset" data-action="apply-drug-preset" data-i="${i}" style="background:${color}18; border:1px solid ${color}44; color:${color};">${esc(p.name)}</button>`;
+        }).join('')}
+      </div>
+      <div class="field-stack">
+        <input class="input" placeholder="Substance name" value="${esc(d.name)}" data-field="newDrug.name" />
+        <div class="row">
+          <div style="flex:1;"><label class="mini-label">Type</label>
+            <select class="input" data-field="newDrug.type">
+              <option value="stimulant" ${d.type === 'stimulant' ? 'selected' : ''}>Stimulant</option>
+              <option value="benzo" ${d.type === 'benzo' ? 'selected' : ''}>Benzo</option>
+              <option value="thc" ${d.type === 'thc' ? 'selected' : ''}>THC</option>
+              <option value="other" ${d.type === 'other' ? 'selected' : ''}>Other</option>
+            </select>
+          </div>
+          <div style="flex:1;"><label class="mini-label">Time</label><input class="input" placeholder="HH:MM" value="${esc(d.time)}" data-field="newDrug.time" /></div>
+        </div>
+        <div class="row">
+          <div style="flex:1;"><label class="mini-label">Duration (hrs)</label><input class="input" type="number" value="${d.duration}" data-field="newDrug.duration" /></div>
+          <div style="flex:1;"><label class="mini-label">Severity (1–5)</label><input class="input" type="number" min="1" max="5" value="${d.severity}" data-field="newDrug.severity" /></div>
+        </div>
+        <div class="row" style="margin-top:4px;">
+          <button class="btn btn-primary" data-action="add-drug">Log</button>
+          <button class="btn btn-secondary" data-action="cancel-drug">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDrinksTab(now) {
+  const cat = state.drinkSubTab;
+  const drinks = state.drinks.filter(d => d.category === cat);
+  return `
+    <div class="sub-tabs">
+      <button class="sub-tab ${cat === 'alcohol' ? 'active' : ''}" data-action="drink-sub-tab" data-cat="alcohol">🍺 Alcohol</button>
+      <button class="sub-tab ${cat === 'water' ? 'active' : ''}" data-action="drink-sub-tab" data-cat="water">💧 Water</button>
+      <button class="sub-tab ${cat === 'caffeine' ? 'active' : ''}" data-action="drink-sub-tab" data-cat="caffeine">☕ Caffeine</button>
+    </div>
+    ${drinks.length === 0 && !state.showDrinkForm ? `<div class="empty">No ${cat} logged yet</div>` : ''}
+    ${drinks.slice().reverse().map(d => {
+      const hoursAgo = ((now - parseTime(d.time)) / 3600000).toFixed(1);
+      let meta = '';
+      if (cat === 'alcohol') meta = `${(d.oz * d.abv * d.pct / 0.6).toFixed(2)} std`;
+      else if (cat === 'water') meta = `${d.oz} oz`;
+      else if (cat === 'caffeine') meta = `${d.mg} mg`;
+      const sub = `${esc(d.time)} · ${hoursAgo}h ago${cat === 'alcohol' && d.pct < 1 ? ` · ${Math.round(d.pct * 100)}%` : ''}`;
+      return `
+        <div class="entry">
+          <div>
+            <div class="entry-name">${esc(d.name || (cat === 'water' ? 'Water' : cat))}</div>
+            <div class="entry-sub">${sub}</div>
+          </div>
+          <div class="entry-right">
+            <div class="entry-meta">${meta}</div>
+            <button class="x-btn" data-action="remove-drink" data-id="${d.id}">×</button>
+          </div>
+        </div>
+      `;
+    }).join('')}
+    ${state.showDrinkForm
+      ? renderDrinkForm(cat)
+      : `<button class="add-dashed" data-action="show-drink-form" data-cat="${cat}">+ Log ${cat}</button>`
+    }
+  `;
+}
+
+function renderSubstancesTab(now) {
+  return `
+    ${state.drugs.length === 0 && !state.showDrugForm ? '<div class="empty">No substances logged</div>' : ''}
+    ${state.drugs.slice().reverse().map(d => renderDrugTag(d, now, true)).join('')}
+    ${state.showDrugForm
+      ? renderDrugForm()
+      : `<button class="add-dashed" data-action="show-drug-form">+ Log a substance</button>`
+    }
+  `;
+}
+
+// ─── Body / Composition ─────────────────────────────────────────────────────
+function defaultSilhouetteSvg() {
+  return `
+    <svg class="body-silhouette" viewBox="0 0 100 200" xmlns="http://www.w3.org/2000/svg" data-action="open-body-modal">
+      <defs>
+        <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#1a1f2b"/>
+          <stop offset="100%" stop-color="#0a0c11"/>
+        </linearGradient>
+      </defs>
+      <ellipse cx="50" cy="25" rx="15" ry="18" fill="url(#bodyGrad)" stroke="#1e2433" stroke-width="0.5"/>
+      <path d="M 25,55 Q 25,42 35,40 L 65,40 Q 75,42 75,55 L 78,120 Q 78,130 70,130 L 65,180 Q 65,195 55,195 L 53,195 Q 50,195 50,180 L 50,130 Q 50,130 50,130 Q 50,180 50,180 Q 50,195 47,195 L 45,195 Q 35,195 35,180 L 30,130 Q 22,130 22,120 Z"
+        fill="url(#bodyGrad)" stroke="#1e2433" stroke-width="0.5"/>
+      <text x="50" y="105" text-anchor="middle" fill="#374151" font-size="6" font-family="monospace">TAP</text>
+    </svg>
+  `;
+}
+
+function renderBodyTab(now) {
+  const bac = calcBAC(now);
+  const alcoholG = alcoholGramsInBody(now);
+  const caffMg = caffeineMgInBody(now);
+  const waterOz = waterOzToday(now);
+  const active = activeDrugs(now);
+  const drugTotalMg = active.reduce((s, d) => {
+    const t = parseTime(d.time);
+    const hrs = Math.max(0, (now - t) / 3600000);
+    const pct = Math.max(0, 1 - hrs / d.duration);
+    // Try to extract mg from name
+    const m = d.name.match(/(\d+(?:\.\d+)?)\s*mg/i);
+    const mg = m ? parseFloat(m[1]) : 0;
+    return s + mg * pct;
+  }, 0);
+
+  const bodyG = PROFILE.weightLbs * 453.592;
+  const alcoholPct = (alcoholG / bodyG) * 100;
+  const caffPct = (caffMg / 1000 / bodyG) * 100;
+
+  // For the "% of Chris" visualization, use effect-weighted percentages
+  const alcoholEffect = bac * 50;
+  const caffEffect = Math.min(caffMg / 100, 5);
+  const drugEffect = active.reduce((s, d) => s + d.severity, 0);
+  const totalEffect = alcoholEffect + caffEffect + drugEffect;
+  const composition = totalEffect > 0 ? [
+    { label: 'Alcohol', value: alcoholEffect, color: COLORS.alcohol },
+    { label: 'Caffeine', value: caffEffect, color: COLORS.caffeine },
+    ...active.map(d => ({ label: d.name, value: d.severity, color: COLORS[d.type] || '#9ca3af' })),
+  ].filter(x => x.value > 0).map(x => ({ ...x, pct: (x.value / totalEffect) * 100 })) : [];
+
+  return `
+    <div class="body-photo-wrap">
+      ${state.photoData
+        ? `<img class="body-photo" src="${state.photoData}" alt="Chris" data-action="open-body-modal">
+           <button class="photo-edit-btn" data-action="change-photo">change</button>`
+        : `${defaultSilhouetteSvg()}
+           <button class="photo-upload-btn" data-action="change-photo">Upload your photo</button>`
+      }
+    </div>
+
+    ${composition.length > 0 ? `
+      <div class="card" style="padding:14px 16px;">
+        <div class="stat-eyebrow">What % of ${PROFILE.name} is what</div>
+        <div class="comp-bar">
+          ${composition.map(c => `<div class="comp-bar-seg" style="width:${c.pct}%; background:${c.color};"></div>`).join('')}
+        </div>
+        <div class="comp-breakdown">
+          ${composition.map(c => `
+            <div>
+              <div class="comp-color" style="background:${c.color};"></div>
+              <span style="flex:1;">${esc(c.label)}</span>
+              <strong style="color:#e2e0da;">${c.pct.toFixed(1)}%</strong>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : `
+      <div class="card" style="padding:14px 16px; text-align:center; color:#374151; font-size:12px;">
+        Nothing in your system right now
+      </div>
+    `}
+
+    <div class="composition-grid">
+      <div class="comp-cell">
+        <div class="comp-cell-label">Alcohol</div>
+        <div class="comp-cell-value" style="color:${COLORS.alcohol};">${alcoholG.toFixed(1)}<span style="font-size:11px;">g</span></div>
+        <div class="comp-cell-sub">${alcoholPct.toFixed(4)}% body mass · BAC ${bac.toFixed(3)}</div>
+      </div>
+      <div class="comp-cell">
+        <div class="comp-cell-label">Caffeine</div>
+        <div class="comp-cell-value" style="color:${COLORS.caffeine};">${Math.round(caffMg)}<span style="font-size:11px;">mg</span></div>
+        <div class="comp-cell-sub">half-life ~5h</div>
+      </div>
+      <div class="comp-cell">
+        <div class="comp-cell-label">Hydration</div>
+        <div class="comp-cell-value" style="color:${COLORS.water};">${Math.round(waterOz)}<span style="font-size:11px;">oz</span></div>
+        <div class="comp-cell-sub">${Math.round(waterOz / HYDRATION_GOAL_OZ * 100)}% of daily goal</div>
+      </div>
+      <div class="comp-cell">
+        <div class="comp-cell-label">Other substances</div>
+        <div class="comp-cell-value" style="color:${COLORS.stimulant};">${drugTotalMg.toFixed(0)}<span style="font-size:11px;">mg</span></div>
+        <div class="comp-cell-sub">${active.length} active</div>
+      </div>
+    </div>
+
+    <div style="font-size:10px; color:#374151; text-align:center; margin-top:14px; line-height:1.6;">
+      ${PROFILE.weightLbs} lb (${Math.round(bodyG)}g body mass)<br>
+      Tap your ${state.photoData ? 'photo' : 'figure'} for detailed breakdown
+    </div>
+  `;
+}
+
+function renderBodyModal(now) {
+  const bac = calcBAC(now);
+  const alcoholG = alcoholGramsInBody(now);
+  const caffMg = caffeineMgInBody(now);
+  const waterOz = waterOzToday(now);
+  const active = activeDrugs(now);
+  const bodyG = PROFILE.weightLbs * 453.592;
+
+  return `
+    <h3>${PROFILE.name}'s Current Composition</h3>
+    <div style="font-size:11px; color:#6b7280; margin-bottom:14px;">
+      Body mass: ${Math.round(bodyG).toLocaleString()} g (${PROFILE.weightLbs} lb)
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div style="background:#0a0c11; border-radius:8px; padding:12px; border-left:3px solid ${COLORS.alcohol};">
+        <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:#6b7280;">🍺 Alcohol</div>
+        <div style="font-size:20px; color:#e2e0da; margin:4px 0;">${alcoholG.toFixed(2)} g</div>
+        <div style="font-size:11px; color:#9ca3af;">
+          BAC: <strong>${bac.toFixed(3)}</strong> · ${((alcoholG / bodyG) * 1000000).toFixed(0)} ppm<br>
+          ${bac > 0 ? `Body burns ~${(ALCOHOL_METABOLISM * PROFILE.weightKg * WIDMARK_R * 10).toFixed(1)} g/hr` : 'No alcohol in system'}
+        </div>
+      </div>
+
+      <div style="background:#0a0c11; border-radius:8px; padding:12px; border-left:3px solid ${COLORS.caffeine};">
+        <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:#6b7280;">☕ Caffeine</div>
+        <div style="font-size:20px; color:#e2e0da; margin:4px 0;">${Math.round(caffMg)} mg</div>
+        <div style="font-size:11px; color:#9ca3af;">
+          ${((caffMg / 1000 / bodyG) * 1000000000).toFixed(1)} ppb<br>
+          Half-life ~5h
+        </div>
+      </div>
+
+      <div style="background:#0a0c11; border-radius:8px; padding:12px; border-left:3px solid ${COLORS.water};">
+        <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:#6b7280;">💧 Water (today)</div>
+        <div style="font-size:20px; color:#e2e0da; margin:4px 0;">${Math.round(waterOz)} oz</div>
+        <div style="font-size:11px; color:#9ca3af;">
+          ${(waterOz * 29.5735).toFixed(0)} ml · ${Math.round(waterOz / HYDRATION_GOAL_OZ * 100)}% of goal
+        </div>
+      </div>
+
+      ${active.map(d => {
+        const t = parseTime(d.time);
+        const hrs = Math.max(0, (now - t) / 3600000);
+        const pct = Math.max(0, 1 - hrs / d.duration);
+        const m = d.name.match(/(\d+(?:\.\d+)?)\s*mg/i);
+        const dose = m ? parseFloat(m[1]) : null;
+        const remaining = dose ? dose * pct : null;
+        const color = COLORS[d.type] || '#9ca3af';
+        return `
+          <div style="background:#0a0c11; border-radius:8px; padding:12px; border-left:3px solid ${color};">
+            <div style="font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:#6b7280;">${esc(d.type)}</div>
+            <div style="font-size:16px; color:#e2e0da; margin:4px 0;">${esc(d.name)}</div>
+            <div style="font-size:11px; color:#9ca3af;">
+              ${remaining !== null ? `${remaining.toFixed(2)} mg active` : `${Math.round(pct * 100)}% potency`}<br>
+              Taken ${hrs.toFixed(1)}h ago · ${(d.duration - hrs).toFixed(1)}h remaining
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <div class="row">
+      <button class="btn btn-secondary" data-action="close-body-modal">Close</button>
+    </div>
+  `;
+}
+
+// ─── Timeline ───────────────────────────────────────────────────────────────
+function renderTimeline(now) {
+  const allEvents = [
+    ...state.drinks.map(d => ({ ...d, kind: 'drink' })),
+    ...state.drugs.map(d => ({ ...d, kind: 'drug' })),
+  ];
+
+  if (allEvents.length === 0) {
+    return `<div class="empty">No events logged yet</div>`;
+  }
+
+  // Time range
+  let minT = Math.min(...allEvents.map(e => parseTime(e.time).getTime()));
+  let maxT = now.getTime();
+  // Extend maxT to include any active drug durations
+  for (const d of state.drugs) {
+    const end = parseTime(d.time).getTime() + d.duration * 3600000;
+    if (end > maxT) maxT = end;
+  }
+  const padding = (maxT - minT) * 0.05 || 600000;
+  minT -= padding;
+  maxT += padding;
+  const range = maxT - minT;
+
+  const rows = ['alcohol', 'caffeine', 'water', 'stimulant', 'benzo', 'thc', 'other'];
+  const rowLabels = { alcohol: '🍺 Alcohol', caffeine: '☕ Caffeine', water: '💧 Water', stimulant: '💊 Stim', benzo: '💊 Benzo', thc: '🌿 THC', other: '💊 Other' };
+  // Only show rows with events
+  const activeRows = rows.filter(r => allEvents.some(e => (e.category === r) || (e.type === r)));
+
+  const W = 600;
+  const rowHeight = 32;
+  const padLeft = 70;
+  const padRight = 10;
+  const padTop = 20;
+  const chartW = W - padLeft - padRight;
+  const H = padTop + activeRows.length * rowHeight + 24;
+
+  const timeToX = (t) => padLeft + ((t - minT) / range) * chartW;
+
+  // Time labels
+  const labelCount = 5;
+  const labels = [];
+  for (let i = 0; i <= labelCount; i++) {
+    const t = minT + (range / labelCount) * i;
+    const d = new Date(t);
+    labels.push({ x: timeToX(t), label: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` });
+  }
+
+  const nowX = timeToX(now.getTime());
+
+  let svg = `<svg class="timeline-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+
+  // Grid + time labels
+  for (const l of labels) {
+    svg += `<line x1="${l.x}" y1="${padTop}" x2="${l.x}" y2="${H - 20}" stroke="#1a1f2b" stroke-width="0.5"/>`;
+    svg += `<text x="${l.x}" y="${H - 6}" fill="#4b5563" font-size="9" text-anchor="middle" font-family="monospace">${l.label}</text>`;
+  }
+
+  // Now line
+  svg += `<line x1="${nowX}" y1="${padTop - 4}" x2="${nowX}" y2="${H - 20}" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="3,2"/>`;
+  svg += `<text x="${nowX}" y="${padTop - 6}" fill="#3b82f6" font-size="9" text-anchor="middle" font-family="monospace">NOW</text>`;
+
+  // Row labels + events
+  activeRows.forEach((row, i) => {
+    const y = padTop + i * rowHeight + rowHeight / 2;
+    const color = COLORS[row] || '#9ca3af';
+    svg += `<text x="${padLeft - 6}" y="${y + 3}" fill="#9ca3af" font-size="10" text-anchor="end" font-family="monospace">${rowLabels[row]}</text>`;
+    svg += `<line x1="${padLeft}" y1="${y}" x2="${W - padRight}" y2="${y}" stroke="#111318" stroke-width="0.5"/>`;
+
+    const rowEvents = allEvents.filter(e => e.category === row || e.type === row);
+    for (const e of rowEvents) {
+      const x = timeToX(parseTime(e.time).getTime());
+      if (e.kind === 'drug') {
+        // Active bar
+        const endX = timeToX(parseTime(e.time).getTime() + e.duration * 3600000);
+        svg += `<rect x="${x}" y="${y - 5}" width="${Math.max(0, endX - x)}" height="10" fill="${color}33" rx="3"/>`;
+        svg += `<rect x="${x}" y="${y - 5}" width="${Math.max(0, Math.min(endX, now.getTime() > parseTime(e.time).getTime() + e.duration * 3600000 ? endX : timeToX(now.getTime())) - x)}" height="10" fill="${color}88" rx="3"/>`;
+      }
+      svg += `<circle cx="${x}" cy="${y}" r="4" fill="${color}" stroke="#080a0f" stroke-width="1.5"/>`;
+    }
+  });
+
+  svg += `</svg>`;
+
+  return `
+    <div class="timeline-wrap">
+      ${svg}
+    </div>
+    <div class="legend">
+      ${activeRows.map(r => `<div class="legend-item"><div class="legend-dot" style="background:${COLORS[r] || '#9ca3af'};"></div>${rowLabels[r]}</div>`).join('')}
+    </div>
+    <div style="font-size:10px; color:#4b5563; text-align:center; margin-top:14px; line-height:1.6;">
+      Bars = active substance duration · Dots = consumption events<br>
+      Blue dashed line = now
+    </div>
+  `;
+}
+
+// ─── Main render ────────────────────────────────────────────────────────────
+function render() {
+  const now = new Date();
+  const bac = calcBAC(now);
+  const active = activeDrugs(now);
+  const risk = riskLevel(bac, active);
+  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <div class="header-row">
+        <div>
+          <div class="eyebrow">CHRIS · ${timeStr}</div>
+          <div class="title">Your Session</div>
+          <div class="submeta">${PROFILE.weightLbs} lb · male</div>
+        </div>
+        <div class="risk-badge" style="background:${risk.color}18; border:1px solid ${risk.color}55;">
+          <div class="risk-label">RISK</div>
+          <div class="risk-value" style="color:${risk.color};">${risk.label}</div>
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab ${state.tab === 'dashboard' ? 'active' : ''}" data-action="tab" data-tab="dashboard">Now</button>
+        <button class="tab ${state.tab === 'drinks' ? 'active' : ''}" data-action="tab" data-tab="drinks">Drinks${state.drinks.length ? ` (${state.drinks.length})` : ''}</button>
+        <button class="tab ${state.tab === 'substances' ? 'active' : ''}" data-action="tab" data-tab="substances">Drugs${state.drugs.length ? ` (${state.drugs.length})` : ''}</button>
+        <button class="tab ${state.tab === 'body' ? 'active' : ''}" data-action="tab" data-tab="body">Body</button>
+        <button class="tab ${state.tab === 'timeline' ? 'active' : ''}" data-action="tab" data-tab="timeline">Time</button>
+      </div>
+    </div>
+    <div class="content">
+      ${state.tab === 'dashboard' ? renderDashboard(now) : ''}
+      ${state.tab === 'drinks' ? renderDrinksTab(now) : ''}
+      ${state.tab === 'substances' ? renderSubstancesTab(now) : ''}
+      ${state.tab === 'body' ? renderBodyTab(now) : ''}
+      ${state.tab === 'timeline' ? renderTimeline(now) : ''}
+    </div>
+    <div class="footer">
+      Estimates based on profile (265 lb, male). Not medical advice.<br>
+      Substance interaction warnings are informational only.
+    </div>
+  `;
+}
+
+// ─── Helper: prefill new form from last entry of category ──────────────────
+function prefillNewDrink(category) {
+  const last = state.lastByCategory[category];
+  const time = nowHHMM();
+  if (last) {
+    return { ...last, time };
+  }
+  // Default by category
+  if (category === 'alcohol') return { name: '', oz: 1.5, abv: 0.40, pct: 1.0, mg: 0, time };
+  if (category === 'water') return { name: '', oz: 16, abv: 0, pct: 1, mg: 0, time };
+  if (category === 'caffeine') return { name: '', oz: 8, abv: 0, pct: 1, mg: 95, time };
+}
+
+function prefillNewDrug() {
+  const last = state.lastByCategory.drug;
+  const time = nowHHMM();
+  if (last) return { ...last, time };
+  return { name: '', type: 'stimulant', severity: 2, duration: 12, time };
+}
+
+// ─── Event delegation ───────────────────────────────────────────────────────
+document.addEventListener('click', (e) => {
+  const target = e.target.closest('[data-action]');
+  if (!target) return;
+  const action = target.dataset.action;
+
+  switch (action) {
+    case 'tab': setState({ tab: target.dataset.tab, showDrinkForm: false, showDrugForm: false }); break;
+    case 'drink-sub-tab': setState({ drinkSubTab: target.dataset.cat, showDrinkForm: false }); break;
+    case 'goto-add-drink': {
+      const cat = target.dataset.cat;
+      setState({ tab: 'drinks', drinkSubTab: cat, showDrinkForm: true, newDrink: prefillNewDrink(cat) });
+      break;
+    }
+    case 'goto-add-drug':
+      setState({ tab: 'substances', showDrugForm: true, newDrug: prefillNewDrug() });
+      break;
+    case 'show-drink-form':
+      setState({ showDrinkForm: true, newDrink: prefillNewDrink(target.dataset.cat) });
+      break;
+    case 'show-drug-form':
+      setState({ showDrugForm: true, newDrug: prefillNewDrug() });
+      break;
+    case 'cancel-drink': setState({ showDrinkForm: false }); break;
+    case 'cancel-drug': setState({ showDrugForm: false }); break;
+    case 'add-drink': {
+      const d = state.newDrink;
+      const cat = target.dataset.cat;
+      if (!d.time) return;
+      const entry = {
+        id: Date.now(),
+        category: cat,
+        name: d.name || (cat === 'water' ? 'Water' : ''),
+        oz: parseFloat(d.oz) || 0,
+        abv: parseFloat(d.abv) || 0,
+        pct: parseFloat(d.pct) || 1,
+        mg: parseFloat(d.mg) || 0,
+        time: d.time,
+      };
+      state.drinks.push(entry);
+      state.lastByCategory[cat] = { name: entry.name, oz: entry.oz, abv: entry.abv, pct: entry.pct, mg: entry.mg };
+      pushRecent(cat, { name: entry.name, oz: entry.oz, abv: entry.abv, pct: entry.pct, mg: entry.mg });
+      setState({ showDrinkForm: false });
+      break;
+    }
+    case 'add-drug': {
+      const d = state.newDrug;
+      if (!d.name || !d.time) return;
+      const entry = {
+        id: Date.now(),
+        name: d.name,
+        type: d.type,
+        severity: parseInt(d.severity) || 1,
+        duration: parseFloat(d.duration) || 4,
+        time: d.time,
+      };
+      state.drugs.push(entry);
+      state.lastByCategory.drug = { name: entry.name, type: entry.type, severity: entry.severity, duration: entry.duration };
+      pushRecent('drug', { name: entry.name, type: entry.type, severity: entry.severity, duration: entry.duration });
+      setState({ showDrugForm: false });
+      break;
+    }
+    case 'remove-drink':
+      state.drinks = state.drinks.filter(x => x.id != target.dataset.id);
+      setState({});
+      break;
+    case 'remove-drug':
+      state.drugs = state.drugs.filter(x => x.id != target.dataset.id);
+      setState({});
+      break;
+    case 'apply-drink-preset': {
+      const cat = target.dataset.cat;
+      const presets = cat === 'alcohol' ? ALCOHOL_PRESETS : cat === 'water' ? WATER_PRESETS : CAFFEINE_PRESETS;
+      const p = presets[+target.dataset.i];
+      const update = { ...state.newDrink, name: p.name };
+      if (cat === 'alcohol') { update.oz = p.oz; update.abv = p.abv; }
+      else if (cat === 'water') { update.oz = p.oz; }
+      else { update.mg = p.mg; update.oz = p.oz; }
+      setState({ newDrink: update });
+      break;
+    }
+    case 'apply-drug-preset': {
+      const p = DRUG_PRESETS[+target.dataset.i];
+      setState({ newDrug: { ...state.newDrug, name: p.name, type: p.type, severity: p.severity, duration: p.duration } });
+      break;
+    }
+    case 'apply-recent': {
+      const cat = target.dataset.cat;
+      const item = state.recents[cat][+target.dataset.i];
+      if (cat === 'drug') {
+        setState({ newDrug: { ...state.newDrug, ...item, time: nowHHMM() } });
+      } else {
+        setState({ newDrink: { ...state.newDrink, ...item, time: nowHHMM() } });
+      }
+      break;
+    }
+    case 'reset-session':
+      if (confirm('Clear all drinks and substances?')) {
+        state.drinks = [];
+        state.drugs = [];
+        setState({});
+      }
+      break;
+    case 'change-photo':
+      document.getElementById('photo-input').click();
+      break;
+    case 'open-body-modal': {
+      const modal = document.getElementById('body-modal-bg');
+      document.getElementById('body-modal-content').innerHTML = renderBodyModal(new Date());
+      modal.classList.add('show');
+      break;
+    }
+    case 'close-body-modal':
+      document.getElementById('body-modal-bg').classList.remove('show');
+      break;
+  }
+});
+
+// Close modal on background click
+document.getElementById('body-modal-bg').addEventListener('click', (e) => {
+  if (e.target.id === 'body-modal-bg') {
+    e.currentTarget.classList.remove('show');
+  }
+});
+
+// Photo upload
+document.getElementById('photo-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) handlePhotoUpload(file);
+  e.target.value = '';
+});
+
+document.addEventListener('input', (e) => {
+  const field = e.target.dataset.field;
+  if (!field) return;
+  const [obj, key] = field.split('.');
+  const val = e.target.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value;
+  state[obj][key] = val;
+  saveState();
+});
+
+document.addEventListener('change', (e) => {
+  const field = e.target.dataset.field;
+  if (!field || e.target.tagName !== 'SELECT') return;
+  const [obj, key] = field.split('.');
+  state[obj][key] = e.target.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value;
+  saveState();
+});
+
+// ─── Init ───────────────────────────────────────────────────────────────────
+loadState();
+// Set default times to now on first load
+if (!state.newDrink.time) state.newDrink.time = nowHHMM();
+if (!state.newDrug.time) state.newDrug.time = nowHHMM();
+render();
+
+setInterval(() => {
+  if (!state.showDrinkForm && !state.showDrugForm) {
+    render();
+  }
+}, 30000);
+</script>
+
+</body>
+</html>
