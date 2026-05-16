@@ -166,6 +166,27 @@ export default function DrinkSessionPage() {
     await refresh();
   }
 
+  async function mergeInto(targetCode: string) {
+    const clean = targetCode.trim().toUpperCase();
+    if (!clean) {
+      setError("Enter the target session code.");
+      return;
+    }
+    if (!confirm(`Merge this session into "${clean}"? All entries and members will move there; this session will end.`)) return;
+    try {
+      const res = await fetch(`/api/drinks/sessions/${code}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ into: clean }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to merge");
+      router.push(`/drinks/${json.target.code}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to merge session");
+    }
+  }
+
   async function joinNow() {
     const res = await fetch("/api/drinks/sessions/join", {
       method: "POST",
@@ -207,6 +228,7 @@ export default function DrinkSessionPage() {
           onUpdateEntryTime={updateEntryTime}
           onLeave={leaveSession}
           onEnd={endSession}
+          onMerge={mergeInto}
           onJoinNow={joinNow}
           error={error}
           busyKind={busyKind}
@@ -228,13 +250,14 @@ type ViewProps = {
   onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
   onLeave: () => Promise<void>;
   onEnd: () => Promise<void>;
+  onMerge: (targetCode: string) => Promise<void>;
   onJoinNow: () => Promise<void>;
   error: string | null;
   busyKind: EntryKind | null;
 };
 
 function SessionView({
-  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onLeave, onEnd, onJoinNow, error, busyKind,
+  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onLeave, onEnd, onMerge, onJoinNow, error, busyKind,
 }: ViewProps) {
   const meMember = useMemo(
     () => state.members.find((m) => m.entrant_id === state.me && !m.left_at) ?? null,
@@ -308,13 +331,16 @@ function SessionView({
             )
           )}
           {isCreator && !isEnded && (
-            <button
-              type="button"
-              onClick={() => void onEnd()}
-              className="rounded-full border border-danger/50 px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/10"
-            >
-              End session
-            </button>
+            <>
+              <MergeButton onMerge={onMerge} />
+              <button
+                type="button"
+                onClick={() => void onEnd()}
+                className="rounded-full border border-danger/50 px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/10"
+              >
+                End session
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -352,6 +378,71 @@ function SessionView({
         />
       )}
     </>
+  );
+}
+
+function MergeButton({ onMerge }: { onMerge: (code: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!target.trim()) return;
+    setBusy(true);
+    try {
+      await onMerge(target);
+      setOpen(false);
+      setTarget("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-full border border-border/40 px-3 py-1.5 text-xs font-semibold text-muted hover:text-text"
+        title="Merge this session's entries and members into another session"
+      >
+        Merge…
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 rounded-full border border-border/40 bg-surface/60 px-2 py-1">
+      <span className="text-[10px] uppercase tracking-wider text-muted">Into</span>
+      <input
+        autoFocus
+        value={target}
+        onChange={(e) => setTarget(e.target.value.toUpperCase())}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void submit();
+          if (e.key === "Escape") { setOpen(false); setTarget(""); }
+        }}
+        maxLength={8}
+        placeholder="ABC123"
+        className="w-20 rounded-md bg-transparent px-1 text-xs font-mono uppercase tracking-[0.2em] outline-none"
+      />
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={busy || !target.trim()}
+        className="rounded-md bg-accent px-2 py-0.5 text-[11px] font-semibold text-white disabled:opacity-50"
+      >
+        {busy ? "…" : "Merge"}
+      </button>
+      <button
+        type="button"
+        onClick={() => { setOpen(false); setTarget(""); }}
+        className="rounded-md px-1 text-[11px] text-muted hover:text-text"
+        aria-label="Cancel"
+      >
+        ✕
+      </button>
+    </div>
   );
 }
 
