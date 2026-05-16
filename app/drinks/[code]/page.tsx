@@ -17,6 +17,7 @@ import {
   caffeineSeries,
   calcBAC,
   riskLevel,
+  substanceFraction,
   waterOzRecent,
   type Entry,
   type EntryKind,
@@ -428,9 +429,9 @@ function Stadium({
                     key={d.entry_id}
                     className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
                     style={{ backgroundColor: `${SUBSTANCE_COLORS[d.type]}24`, color: SUBSTANCE_COLORS[d.type] }}
-                    title={`${d.preset ?? d.type} · ${d.hours_remaining.toFixed(1)}h left`}
+                    title={`${d.preset ?? d.type} · ${Math.round(d.fraction * 100)}% effective · ${d.hours_remaining.toFixed(1)}h until cutoff`}
                   >
-                    {d.preset ?? d.type}
+                    {d.preset ?? d.type} · {Math.round(d.fraction * 100)}%
                   </span>
                 ))}
               </div>
@@ -627,6 +628,8 @@ function LogTab({
               type: p.type,
               severity: p.severity,
               duration_hours: p.duration_hours,
+              half_life_hours: p.half_life_hours,
+              onset_minutes: p.onset_minutes,
             } as SubstancePayload,
           }))}
           disabled={busyKind !== null}
@@ -870,7 +873,18 @@ function MemberDecayCard({
 
   const lookbackMs = TIMELINE_LOOKBACK_HOURS * 3600_000;
   const lookaheadMs = TIMELINE_LOOKAHEAD_HOURS * 3600_000;
-  const fromMs = Math.min(now.getTime() - lookbackMs, ...entries.map((e) => new Date(e.occurred_at).getTime()));
+  // Buffer 30 min before the earliest entry so the onset ramp (and the "0"
+  // baseline before it) is visible on the chart.
+  const PRE_BUFFER_MS = 30 * 60_000;
+  const earliestEntryMs = entries.reduce<number | null>((acc, e) => {
+    const t = new Date(e.occurred_at).getTime();
+    if (!Number.isFinite(t)) return acc;
+    return acc === null || t < acc ? t : acc;
+  }, null);
+  const fromMs = Math.min(
+    now.getTime() - lookbackMs,
+    earliestEntryMs !== null ? earliestEntryMs - PRE_BUFFER_MS : now.getTime() - lookbackMs,
+  );
   const toMs = now.getTime() + lookaheadMs;
 
   const bacPoints = bacSeries(profile, entries, fromMs, toMs, 5);
@@ -968,8 +982,9 @@ function MemberDecayCard({
               key={d.entry_id}
               className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
               style={{ backgroundColor: `${SUBSTANCE_COLORS[d.type]}24`, color: SUBSTANCE_COLORS[d.type] }}
+              title={`${d.hours_remaining.toFixed(1)}h until cutoff`}
             >
-              {d.preset ?? d.type} · {d.hours_remaining.toFixed(1)}h left
+              {d.preset ?? d.type} · {Math.round(d.fraction * 100)}%
             </span>
           ))}
         </div>
@@ -1193,39 +1208,53 @@ function SubstanceWindow({
     const p = (e.payload ?? {}) as Partial<SubstancePayload>;
     const dur = typeof p.duration_hours === "number" ? p.duration_hours : 0;
     const endMs = startMs + dur * 3600_000;
-    const clampedStart = Math.max(fromMs, startMs);
-    const clampedEnd = Math.min(toMs, endMs);
-    const x1 = padL + ((clampedStart - fromMs) / span) * innerW;
-    const x2 = padL + ((clampedEnd - fromMs) / span) * innerW;
     const color = SUBSTANCE_COLORS[(p.type as SubstancePayload["type"]) ?? "other"];
-    const isPast = endMs < nowMs;
-    return { e, p, i, x1, x2, color, isPast };
+    // Sample the fraction curve along the entry's lifetime so we can render
+    // a filled shape whose height tracks how active the substance still is.
+    const samples: Array<{ ms: number; fraction: number }> = [];
+    if (dur > 0 && p.type) {
+      const N = 24;
+      for (let k = 0; k <= N; k += 1) {
+        const ageHrs = (k / N) * dur;
+        const ms = startMs + ageHrs * 3600_000;
+        samples.push({ ms, fraction: substanceFraction(p as SubstancePayload, ageHrs) });
+      }
+    }
+    const ageNow = (nowMs - startMs) / 3600_000;
+    const fractionNow = dur > 0 && p.type ? substanceFraction(p as SubstancePayload, ageNow) : 0;
+    return { e, p, i, startMs, endMs, color, samples, fractionNow };
   });
 
   const totalH = padT + rows.length * (rowH + gap) + padB;
   const nowX = padL + ((nowMs - fromMs) / span) * innerW;
+  const xOf = (ms: number) => padL + ((ms - fromMs) / span) * innerW;
 
   return (
     <div>
-      <p className="text-[11px] font-semibold text-muted">Substance windows</p>
+      <p className="text-[11px] font-semibold text-muted">Substance windows (height = effect remaining)</p>
       <svg viewBox={`0 0 ${W} ${totalH}`} className="mt-1 block h-auto w-full" role="img" aria-label="Substance windows">
         <line x1={padL} y1={padT} x2={W - padR} y2={padT} stroke="currentColor" opacity="0.1" />
         {rows.map((r) => {
           const y = padT + r.i * (rowH + gap);
-          const label = `${r.p.preset ?? r.p.type ?? "substance"}`;
+          const baseY = y + rowH;
+          const visible = r.samples.filter((s) => s.ms >= fromMs && s.ms <= toMs);
+          let shapePath = "";
+          if (visible.length >= 2) {
+            const top = visible
+              .map((s, idx) => `${idx === 0 ? "M" : "L"}${xOf(s.ms).toFixed(1)},${(baseY - s.fraction * rowH).toFixed(1)}`)
+              .join(" ");
+            shapePath = `${top} L${xOf(visible[visible.length - 1].ms).toFixed(1)},${baseY} L${xOf(visible[0].ms).toFixed(1)},${baseY} Z`;
+          }
+          const labelX = Math.max(padL + 2, xOf(Math.max(r.startMs, fromMs)) + 4);
+          const pctNow = Math.round(r.fractionNow * 100);
+          const label = `${r.p.preset ?? r.p.type ?? "substance"}${pctNow > 0 ? ` · ${pctNow}%` : ""}`;
           return (
             <g key={r.e.entry_id}>
-              <rect
-                x={r.x1}
-                y={y}
-                width={Math.max(2, r.x2 - r.x1)}
-                height={rowH}
-                rx={3}
-                fill={r.color}
-                opacity={r.isPast ? 0.2 : 0.55}
-              />
+              {shapePath && (
+                <path d={shapePath} fill={r.color} opacity={0.6} />
+              )}
               <text
-                x={r.x1 + 4}
+                x={labelX}
                 y={y + rowH - 3}
                 fontSize="9"
                 fill="currentColor"
