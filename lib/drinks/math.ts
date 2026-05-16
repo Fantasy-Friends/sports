@@ -7,6 +7,7 @@ export const WIDMARK_R_FEMALE = 0.55;
 export const WIDMARK_R_OTHER = 0.61;
 export const ALCOHOL_METABOLISM = 0.015; // BAC/hr
 export const CAFFEINE_HALF_LIFE_HOURS = 5;
+export const CAFFEINE_ONSET_MINUTES = 30; // peak plasma at ~30-45 min after oral intake
 export const HYDRATION_GOAL_OZ = 100;
 
 export type Sex = "male" | "female" | "other";
@@ -119,14 +120,22 @@ export function calcBAC(profile: MemberProfile, entries: Entry[], now: Date): nu
 }
 
 export function caffeineMgRemaining(entries: Entry[], now: Date): number {
+  // Linear ramp to peak over ~30 min absorption, then first-order decay with
+  // the 5-hour half-life. This matches the substance model and prevents the
+  // chart from pinning at the peak the instant an entry is logged.
+  const onsetH = CAFFEINE_ONSET_MINUTES / 60;
   let total = 0;
   for (const e of entries) {
     if (e.kind !== "caffeine") continue;
     const p = e.payload as CaffeinePayload;
     if (!p || typeof p.mg !== "number") continue;
     const t = new Date(e.occurred_at).getTime();
-    const hrs = Math.max(0, (now.getTime() - t) / 3600000);
-    total += p.mg * Math.pow(0.5, hrs / CAFFEINE_HALF_LIFE_HOURS);
+    const hrs = (now.getTime() - t) / 3600000;
+    if (hrs < 0) continue;
+    const fraction = hrs < onsetH
+      ? hrs / onsetH
+      : Math.pow(0.5, (hrs - onsetH) / CAFFEINE_HALF_LIFE_HOURS);
+    total += p.mg * fraction;
   }
   return total;
 }

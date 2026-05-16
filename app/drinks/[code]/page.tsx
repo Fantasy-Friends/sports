@@ -873,7 +873,18 @@ function MemberDecayCard({
 
   const lookbackMs = TIMELINE_LOOKBACK_HOURS * 3600_000;
   const lookaheadMs = TIMELINE_LOOKAHEAD_HOURS * 3600_000;
-  const fromMs = Math.min(now.getTime() - lookbackMs, ...entries.map((e) => new Date(e.occurred_at).getTime()));
+  // Buffer 30 min before the earliest entry so the onset ramp (and the "0"
+  // baseline before it) is visible on the chart.
+  const PRE_BUFFER_MS = 30 * 60_000;
+  const earliestEntryMs = entries.reduce<number | null>((acc, e) => {
+    const t = new Date(e.occurred_at).getTime();
+    if (!Number.isFinite(t)) return acc;
+    return acc === null || t < acc ? t : acc;
+  }, null);
+  const fromMs = Math.min(
+    now.getTime() - lookbackMs,
+    earliestEntryMs !== null ? earliestEntryMs - PRE_BUFFER_MS : now.getTime() - lookbackMs,
+  );
   const toMs = now.getTime() + lookaheadMs;
 
   const bacPoints = bacSeries(profile, entries, fromMs, toMs, 5);
