@@ -13,7 +13,8 @@ type SessionRow = {
 type EntryRow = {
   entry_id: string;
   session_id: string;
-  entrant_id: string;
+  entrant_id: string | null;
+  guest_id: string | null;
   kind: "drink" | "caffeine" | "water" | "substance";
   payload: Record<string, unknown>;
   occurred_at: string;
@@ -40,7 +41,17 @@ async function assertMember(sessionId: string, entrantId: string) {
   return !!data && !data.left_at;
 }
 
-// Log a drink / caffeine / water / substance entry.
+async function guestBelongsToSession(sessionId: string, guestId: string) {
+  const { data } = await supabaseAdmin
+    .from("drink_session_guests")
+    .select("guest_id, session_id, removed_at")
+    .eq("guest_id", guestId)
+    .maybeSingle<{ guest_id: string; session_id: string; removed_at: string | null }>();
+  return !!data && data.session_id === sessionId && !data.removed_at;
+}
+
+// Log a drink / caffeine / water / substance entry — either for the caller
+// themselves OR on behalf of a session guest (when `guest_id` is provided).
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ code: string }> },
@@ -56,6 +67,7 @@ export async function POST(
       kind?: string;
       payload?: Record<string, unknown>;
       occurred_at?: string;
+      guest_id?: string;
     };
 
     if (!body.kind || !VALID_KINDS.has(body.kind)) {
@@ -74,21 +86,39 @@ export async function POST(
       return NextResponse.json({ error: "join the session first" }, { status: 403 });
     }
 
+    if (body.guest_id && !(await guestBelongsToSession(drinkSession.session_id, body.guest_id))) {
+      return NextResponse.json({ error: "guest not found in this session" }, { status: 404 });
+    }
+
     const occurredAt = body.occurred_at ? new Date(body.occurred_at) : new Date();
     if (Number.isNaN(occurredAt.getTime())) {
       return NextResponse.json({ error: "invalid occurred_at" }, { status: 400 });
     }
 
+    const insert = body.guest_id
+      ? {
+          session_id: drinkSession.session_id,
+          entrant_id: null,
+          guest_id: body.guest_id,
+          kind: body.kind,
+          payload: body.payload ?? {},
+          occurred_at: occurredAt.toISOString(),
+          logged_by_entrant_id: auth.entrant.entrant_id,
+        }
+      : {
+          session_id: drinkSession.session_id,
+          entrant_id: auth.entrant.entrant_id,
+          guest_id: null,
+          kind: body.kind,
+          payload: body.payload ?? {},
+          occurred_at: occurredAt.toISOString(),
+          logged_by_entrant_id: auth.entrant.entrant_id,
+        };
+
     const { data, error } = await supabaseAdmin
       .from("drink_session_entries")
-      .insert({
-        session_id: drinkSession.session_id,
-        entrant_id: auth.entrant.entrant_id,
-        kind: body.kind,
-        payload: body.payload ?? {},
-        occurred_at: occurredAt.toISOString(),
-      })
-      .select("entry_id, session_id, entrant_id, kind, payload, occurred_at")
+      .insert(insert)
+      .select("entry_id, session_id, entrant_id, guest_id, kind, payload, occurred_at")
       .single<EntryRow>();
     if (error) throw new Error(error.message);
 
@@ -101,7 +131,8 @@ export async function POST(
   }
 }
 
-// Edit an entry I logged (currently: just the timestamp, optionally payload).
+// Edit an entry (currently: just the timestamp, optionally payload).
+// Self-entries: only the author can edit. Guest entries: any session member.
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ code: string }> },
@@ -126,14 +157,22 @@ export async function PATCH(
 
     const { data: entry } = await supabaseAdmin
       .from("drink_session_entries")
-      .select("entry_id, entrant_id, session_id")
+      .select("entry_id, entrant_id, guest_id, session_id")
       .eq("entry_id", body.id)
-      .maybeSingle<{ entry_id: string; entrant_id: string; session_id: string }>();
+      .maybeSingle<{ entry_id: string; entrant_id: string | null; guest_id: string | null; session_id: string }>();
     if (!entry || entry.session_id !== drinkSession.session_id) {
       return NextResponse.json({ error: "entry not found" }, { status: 404 });
     }
-    if (entry.entrant_id !== auth.entrant.entrant_id) {
-      return NextResponse.json({ error: "you can only edit your own entries" }, { status: 403 });
+
+    const isSelfEntry = entry.entrant_id !== null;
+    const isAuthor = isSelfEntry && entry.entrant_id === auth.entrant.entrant_id;
+    const callerInSession = await assertMember(drinkSession.session_id, auth.entrant.entrant_id);
+
+    if (isSelfEntry && !isAuthor) {
+      return NextResponse.json({ error: "only the author can edit their own entry" }, { status: 403 });
+    }
+    if (!isSelfEntry && !callerInSession) {
+      return NextResponse.json({ error: "must be a session member to edit a guest entry" }, { status: 403 });
     }
 
     const update: Record<string, unknown> = {};
@@ -155,7 +194,7 @@ export async function PATCH(
       .from("drink_session_entries")
       .update(update)
       .eq("entry_id", body.id)
-      .select("entry_id, session_id, entrant_id, kind, payload, occurred_at")
+      .select("entry_id, session_id, entrant_id, guest_id, kind, payload, occurred_at")
       .single<EntryRow>();
     if (error) throw new Error(error.message);
 
@@ -168,7 +207,7 @@ export async function PATCH(
   }
 }
 
-// Delete an entry I logged (or that I'm the session creator for cleanup).
+// Delete an entry. Self-entries: only the author. Guest entries: any member.
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ code: string }> },
@@ -189,14 +228,22 @@ export async function DELETE(
 
     const { data: entry } = await supabaseAdmin
       .from("drink_session_entries")
-      .select("entry_id, entrant_id, session_id")
+      .select("entry_id, entrant_id, guest_id, session_id")
       .eq("entry_id", entryId)
-      .maybeSingle<{ entry_id: string; entrant_id: string; session_id: string }>();
+      .maybeSingle<{ entry_id: string; entrant_id: string | null; guest_id: string | null; session_id: string }>();
     if (!entry || entry.session_id !== drinkSession.session_id) {
       return NextResponse.json({ error: "entry not found" }, { status: 404 });
     }
-    if (entry.entrant_id !== auth.entrant.entrant_id) {
-      return NextResponse.json({ error: "you can only delete your own entries" }, { status: 403 });
+
+    const isSelfEntry = entry.entrant_id !== null;
+    const isAuthor = isSelfEntry && entry.entrant_id === auth.entrant.entrant_id;
+    const callerInSession = await assertMember(drinkSession.session_id, auth.entrant.entrant_id);
+
+    if (isSelfEntry && !isAuthor) {
+      return NextResponse.json({ error: "only the author can delete their own entry" }, { status: 403 });
+    }
+    if (!isSelfEntry && !callerInSession) {
+      return NextResponse.json({ error: "must be a session member to delete a guest entry" }, { status: 403 });
     }
 
     const { error } = await supabaseAdmin

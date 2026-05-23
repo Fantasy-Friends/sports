@@ -44,7 +44,8 @@ export type EntryKind = "drink" | "caffeine" | "water" | "substance";
 
 export type Entry = {
   entry_id: string;
-  entrant_id: string;
+  entrant_id: string | null;
+  guest_id?: string | null;
   kind: EntryKind;
   payload: Record<string, unknown>;
   occurred_at: string; // ISO
