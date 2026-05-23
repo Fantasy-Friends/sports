@@ -242,6 +242,7 @@ export const ALCOHOL_PRESETS = [
   { name: "Double (3oz)", oz: 3, abv: 0.4 },
   { name: "Vodka Soda", oz: 1.5, abv: 0.4 },
   { name: "Shot (1oz)", oz: 1, abv: 0.4 },
+  { name: "Jello Shot", oz: 0.5, abv: 0.4 },
   { name: "Hard Seltzer", oz: 12, abv: 0.05 },
 ] as const;
 
