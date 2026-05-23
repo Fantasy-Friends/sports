@@ -238,6 +238,7 @@ export const ALCOHOL_PRESETS = [
   { name: "1L Light Beer (4.2%)", oz: 33.814, abv: 0.042 },
   { name: "1L IPA (7%)", oz: 33.814, abv: 0.07 },
   { name: "Wine (5oz/13%)", oz: 5, abv: 0.13 },
+  { name: "Mimosa (6oz/6%)", oz: 6, abv: 0.06 },
   { name: "Cocktail (1.5oz)", oz: 1.5, abv: 0.4 },
   { name: "Double (3oz)", oz: 3, abv: 0.4 },
   { name: "Vodka Soda", oz: 1.5, abv: 0.4 },
