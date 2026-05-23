@@ -27,13 +27,25 @@ type MemberRow = {
 type EntryRow = {
   entry_id: string;
   session_id: string;
-  entrant_id: string;
+  entrant_id: string | null;
+  guest_id: string | null;
   kind: "drink" | "caffeine" | "water" | "substance";
   payload: Record<string, unknown>;
   occurred_at: string;
 };
 
-// Full session snapshot: session meta + members + entries.
+type GuestRow = {
+  guest_id: string;
+  session_id: string;
+  display_name: string;
+  weight_lbs: number;
+  sex: "male" | "female" | "other";
+  added_by: string;
+  created_at: string;
+  removed_at: string | null;
+};
+
+// Full session snapshot: session meta + members + guests + entries.
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ code: string }> },
@@ -54,26 +66,32 @@ export async function GET(
       return NextResponse.json({ error: "session not found" }, { status: 404 });
     }
 
-    const [{ data: members }, { data: entries }] = await Promise.all([
+    const [{ data: members }, { data: guests }, { data: entries }] = await Promise.all([
       supabaseAdmin
         .from("drink_session_members")
         .select("session_id, entrant_id, display_name, weight_lbs, sex, joined_at, left_at")
         .eq("session_id", session.session_id)
         .order("joined_at", { ascending: true }),
       supabaseAdmin
+        .from("drink_session_guests")
+        .select("guest_id, session_id, display_name, weight_lbs, sex, added_by, created_at, removed_at")
+        .eq("session_id", session.session_id)
+        .order("created_at", { ascending: true }),
+      supabaseAdmin
         .from("drink_session_entries")
-        .select("entry_id, session_id, entrant_id, kind, payload, occurred_at")
+        .select("entry_id, session_id, entrant_id, guest_id, kind, payload, occurred_at")
         .eq("session_id", session.session_id)
         .order("occurred_at", { ascending: true }),
     ]);
 
-    const isMember = (members ?? []).some(
-      (m) => (m as MemberRow).entrant_id === auth.entrant.entrant_id && !(m as MemberRow).left_at,
+    const isMember = ((members ?? []) as MemberRow[]).some(
+      (m) => m.entrant_id === auth.entrant.entrant_id && !m.left_at,
     );
 
     return NextResponse.json({
       session,
       members: (members ?? []) as MemberRow[],
+      guests: (guests ?? []) as GuestRow[],
       entries: (entries ?? []) as EntryRow[],
       is_member: isMember,
       me: auth.entrant.entrant_id,

@@ -46,9 +46,21 @@ type MemberRow = {
   left_at: string | null;
 };
 
+type GuestRow = {
+  guest_id: string;
+  session_id: string;
+  display_name: string;
+  weight_lbs: number;
+  sex: Sex;
+  added_by: string;
+  created_at: string;
+  removed_at: string | null;
+};
+
 type SessionState = {
   session: SessionRow;
   members: MemberRow[];
+  guests: GuestRow[];
   entries: Entry[];
   is_member: boolean;
   me: string;
@@ -107,13 +119,19 @@ export default function DrinkSessionPage() {
     kind: EntryKind,
     payload: Record<string, unknown>,
     occurredAt: Date,
+    guestId?: string | null,
   ) {
     setBusyKind(kind);
     try {
       const res = await fetch(`/api/drinks/sessions/${code}/entries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, payload, occurred_at: occurredAt.toISOString() }),
+        body: JSON.stringify({
+          kind,
+          payload,
+          occurred_at: occurredAt.toISOString(),
+          guest_id: guestId ?? undefined,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to log");
@@ -122,6 +140,37 @@ export default function DrinkSessionPage() {
       setError(e instanceof Error ? e.message : "Failed to log entry");
     } finally {
       setBusyKind(null);
+    }
+  }
+
+  async function addGuest(displayName: string, weightLbs: number, sex: Sex) {
+    try {
+      const res = await fetch(`/api/drinks/sessions/${code}/guests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName, weight_lbs: weightLbs, sex }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to add guest");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to add guest");
+    }
+  }
+
+  async function removeGuest(guestId: string) {
+    if (!confirm("Remove this guest? Their logged entries stay in history.")) return;
+    try {
+      const res = await fetch(`/api/drinks/sessions/${code}/guests?id=${guestId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error ?? "Failed to remove guest");
+      }
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to remove guest");
     }
   }
 
@@ -230,6 +279,8 @@ export default function DrinkSessionPage() {
           onEnd={endSession}
           onMerge={mergeInto}
           onJoinNow={joinNow}
+          onAddGuest={addGuest}
+          onRemoveGuest={removeGuest}
           error={error}
           busyKind={busyKind}
         />
@@ -245,23 +296,30 @@ type ViewProps = {
   now: Date;
   tab: Tab;
   onTab: (t: Tab) => void;
-  onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date) => Promise<void>;
+  onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date, guestId?: string | null) => Promise<void>;
   onDeleteEntry: (entryId: string) => Promise<void>;
   onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
   onLeave: () => Promise<void>;
   onEnd: () => Promise<void>;
   onMerge: (targetCode: string) => Promise<void>;
   onJoinNow: () => Promise<void>;
+  onAddGuest: (displayName: string, weightLbs: number, sex: Sex) => Promise<void>;
+  onRemoveGuest: (guestId: string) => Promise<void>;
   error: string | null;
   busyKind: EntryKind | null;
 };
 
 function SessionView({
-  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onLeave, onEnd, onMerge, onJoinNow, error, busyKind,
+  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onLeave, onEnd, onMerge, onJoinNow, onAddGuest, onRemoveGuest, error, busyKind,
 }: ViewProps) {
   const meMember = useMemo(
     () => state.members.find((m) => m.entrant_id === state.me && !m.left_at) ?? null,
     [state.members, state.me],
+  );
+
+  const activeGuests = useMemo(
+    () => state.guests.filter((g) => !g.removed_at),
+    [state.guests],
   );
 
   const profileById = useMemo(() => {
@@ -274,20 +332,30 @@ function SessionView({
         sex: m.sex,
       });
     }
+    for (const g of state.guests) {
+      map.set(g.guest_id, {
+        entrant_id: g.guest_id,
+        display_name: g.display_name,
+        weight_lbs: g.weight_lbs,
+        sex: g.sex,
+      });
+    }
     return map;
-  }, [state.members]);
+  }, [state.members, state.guests]);
 
-  const entriesByMember = useMemo(() => {
+  const entriesByActor = useMemo(() => {
     const map = new Map<string, Entry[]>();
     for (const e of state.entries) {
-      const arr = map.get(e.entrant_id) ?? [];
+      const key = e.entrant_id ?? e.guest_id;
+      if (!key) continue;
+      const arr = map.get(key) ?? [];
       arr.push(e);
-      map.set(e.entrant_id, arr);
+      map.set(key, arr);
     }
     return map;
   }, [state.entries]);
 
-  const myEntries = entriesByMember.get(state.me) ?? [];
+  const myEntries = entriesByActor.get(state.me) ?? [];
   const isCreator = state.session.created_by === state.me;
   const isEnded = !!state.session.ended_at;
 
@@ -352,7 +420,7 @@ function SessionView({
       )}
 
       {tab === "stadium" && (
-        <Stadium state={state} now={now} profileById={profileById} entriesByMember={entriesByMember} />
+        <Stadium state={state} now={now} profileById={profileById} entriesByActor={entriesByActor} />
       )}
 
       {tab === "log" && (
@@ -362,9 +430,13 @@ function SessionView({
           meMember={meMember}
           now={now}
           myEntries={myEntries}
+          guests={activeGuests}
+          entriesByActor={entriesByActor}
           onLog={onLog}
           onDeleteEntry={onDeleteEntry}
           onUpdateEntryTime={onUpdateEntryTime}
+          onAddGuest={onAddGuest}
+          onRemoveGuest={onRemoveGuest}
           busyKind={busyKind}
         />
       )}
@@ -374,10 +446,96 @@ function SessionView({
           state={state}
           now={now}
           profileById={profileById}
-          entriesByMember={entriesByMember}
+          entriesByActor={entriesByActor}
         />
       )}
     </>
+  );
+}
+
+function AddGuestButton({
+  onAddGuest,
+}: {
+  onAddGuest: (displayName: string, weightLbs: number, sex: Sex) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [weight, setWeight] = useState("");
+  const [sex, setSex] = useState<Sex>("male");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    const w = Number(weight);
+    if (!name.trim() || !Number.isFinite(w) || w <= 0) return;
+    setBusy(true);
+    try {
+      await onAddGuest(name.trim(), w, sex);
+      setOpen(false);
+      setName("");
+      setWeight("");
+      setSex("male");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-full border border-warning/50 bg-surface/60 px-3 py-1.5 text-xs font-semibold text-warning hover:bg-warning/10"
+      >
+        + Add guest
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-warning/40 bg-surface/60 p-2">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name"
+        maxLength={60}
+        className="w-32 rounded-md border border-border/40 bg-transparent px-2 py-1 text-xs"
+      />
+      <input
+        type="number"
+        inputMode="decimal"
+        min={50}
+        max={500}
+        value={weight}
+        onChange={(e) => setWeight(e.target.value)}
+        placeholder="lb"
+        className="w-16 rounded-md border border-border/40 bg-transparent px-2 py-1 text-xs"
+      />
+      <select
+        value={sex}
+        onChange={(e) => setSex(e.target.value as Sex)}
+        className="rounded-md border border-border/40 bg-surface/60 px-2 py-1 text-xs"
+      >
+        <option value="male">M</option>
+        <option value="female">F</option>
+        <option value="other">Other</option>
+      </select>
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={busy || !name.trim() || !weight}
+        className="rounded-md bg-accent px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+      >
+        {busy ? "…" : "Add"}
+      </button>
+      <button
+        type="button"
+        onClick={() => { setOpen(false); setName(""); setWeight(""); }}
+        className="rounded-md px-2 py-1 text-xs text-muted hover:text-text"
+      >
+        ✕
+      </button>
+    </div>
   );
 }
 
@@ -448,50 +606,83 @@ function MergeButton({ onMerge }: { onMerge: (code: string) => Promise<void> }) 
 
 // ─── Stadium tab — everyone's live state ────────────────────────────────────
 
+type StadiumActor = {
+  id: string;
+  label: "You" | "Member" | "Guest";
+  display_name: string;
+  weight_lbs: number;
+  sex: Sex;
+  isMe: boolean;
+};
+
 function Stadium({
-  state, now, profileById, entriesByMember,
+  state, now, profileById, entriesByActor,
 }: {
   state: SessionState;
   now: Date;
   profileById: Map<string, MemberProfile>;
-  entriesByMember: Map<string, Entry[]>;
+  entriesByActor: Map<string, Entry[]>;
 }) {
-  const activeMembers = state.members.filter((m) => !m.left_at);
+  const actors: StadiumActor[] = [
+    ...state.members
+      .filter((m) => !m.left_at)
+      .map<StadiumActor>((m) => ({
+        id: m.entrant_id,
+        label: m.entrant_id === state.me ? "You" : "Member",
+        display_name: m.display_name,
+        weight_lbs: m.weight_lbs,
+        sex: m.sex,
+        isMe: m.entrant_id === state.me,
+      })),
+    ...state.guests
+      .filter((g) => !g.removed_at)
+      .map<StadiumActor>((g) => ({
+        id: g.guest_id,
+        label: "Guest",
+        display_name: g.display_name,
+        weight_lbs: g.weight_lbs,
+        sex: g.sex,
+        isMe: false,
+      })),
+  ];
 
   return (
     <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {activeMembers.length === 0 && (
+      {actors.length === 0 && (
         <div className="rounded-[1.5rem] border border-border/40 bg-surface/35 p-6 text-sm text-muted sm:col-span-2 lg:col-span-3">
           No active members yet.
         </div>
       )}
-      {activeMembers.map((m) => {
-        const profile = profileById.get(m.entrant_id);
+      {actors.map((a) => {
+        const profile = profileById.get(a.id);
         if (!profile) return null;
-        const entries = entriesByMember.get(m.entrant_id) ?? [];
+        const entries = entriesByActor.get(a.id) ?? [];
         const bac = calcBAC(profile, entries, now);
         const caffeine = caffeineMgRemaining(entries, now);
         const water = waterOzRecent(entries, now);
         const drugs = activeSubstances(entries, now);
         const risk = riskLevel(bac, drugs);
         const drinkCount = entries.filter((e) => e.kind === "drink").length;
-        const isMe = m.entrant_id === state.me;
+        const isMe = a.isMe;
+        const isGuest = a.label === "Guest";
 
         return (
           <div
-            key={m.entrant_id}
+            key={a.id}
             className={`relative overflow-hidden rounded-[1.5rem] border p-5 ${
-              isMe ? "border-accent/60 bg-surface/55" : "border-border/40 bg-surface/35"
+              isMe ? "border-accent/60 bg-surface/55"
+                : isGuest ? "border-warning/50 bg-surface/35"
+                : "border-border/40 bg-surface/35"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.3em] text-muted">
-                  {isMe ? "You" : "Member"}
+                  {a.label}
                 </p>
-                <h3 className="mt-1 text-lg font-semibold text-text">{m.display_name}</h3>
+                <h3 className="mt-1 text-lg font-semibold text-text">{a.display_name}</h3>
                 <p className="text-xs text-muted">
-                  {m.weight_lbs} lb · {m.sex}
+                  {a.weight_lbs} lb · {a.sex}
                 </p>
               </div>
               <span
@@ -554,21 +745,26 @@ function toDateTimeLocal(d: Date): string {
 }
 
 function LogTab({
-  isMember, isEnded, meMember, now, myEntries, onLog, onDeleteEntry, onUpdateEntryTime, busyKind,
+  isMember, isEnded, meMember, now, myEntries, guests, entriesByActor, onLog, onDeleteEntry, onUpdateEntryTime, onAddGuest, onRemoveGuest, busyKind,
 }: {
   isMember: boolean;
   isEnded: boolean;
   meMember: MemberRow | null;
   now: Date;
   myEntries: Entry[];
-  onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date) => Promise<void>;
+  guests: GuestRow[];
+  entriesByActor: Map<string, Entry[]>;
+  onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date, guestId?: string | null) => Promise<void>;
   onDeleteEntry: (entryId: string) => Promise<void>;
   onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
+  onAddGuest: (displayName: string, weightLbs: number, sex: Sex) => Promise<void>;
+  onRemoveGuest: (guestId: string) => Promise<void>;
   busyKind: EntryKind | null;
 }) {
   const [quickAgoMin, setQuickAgoMin] = useState<number>(0); // 0 = now
   const [useCustom, setUseCustom] = useState(false);
   const [customLocal, setCustomLocal] = useState<string>(() => toDateTimeLocal(new Date()));
+  const [actorGuestId, setActorGuestId] = useState<string | null>(null); // null = me
 
   const computePickedDate = useCallback((): Date => {
     if (useCustom) {
@@ -585,14 +781,20 @@ function LogTab({
 
   const handlePick = useCallback(
     async (kind: EntryKind, payload: Record<string, unknown>) => {
-      await onLog(kind, payload, computePickedDate());
+      await onLog(kind, payload, computePickedDate(), actorGuestId);
       // Snap back to "now" so the next quick log isn't accidentally back-dated.
       setQuickAgoMin(0);
       setUseCustom(false);
       setCustomLocal(toDateTimeLocal(new Date()));
     },
-    [onLog, computePickedDate],
+    [onLog, computePickedDate, actorGuestId],
   );
+
+  // The visible log shows whichever actor is currently selected.
+  const activeGuest = actorGuestId ? guests.find((g) => g.guest_id === actorGuestId) ?? null : null;
+  const visibleEntries = actorGuestId
+    ? entriesByActor.get(actorGuestId) ?? []
+    : myEntries;
 
   if (isEnded) {
     return (
@@ -611,6 +813,59 @@ function LogTab({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      {/* Actor picker — who is the next entry for? */}
+      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-info">Logging for</h3>
+            <p className="text-xs text-muted">
+              Pick yourself, or a guest you&rsquo;re tracking on someone else&rsquo;s behalf.
+            </p>
+          </div>
+          <AddGuestButton onAddGuest={onAddGuest} />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setActorGuestId(null)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+              actorGuestId === null
+                ? "bg-accent text-white shadow-sm"
+                : "border border-border/40 bg-surface/60 text-muted hover:text-text"
+            }`}
+          >
+            Me {meMember ? `(${meMember.weight_lbs} lb · ${meMember.sex})` : ""}
+          </button>
+          {guests.map((g) => (
+            <div key={g.guest_id} className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActorGuestId(g.guest_id)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${
+                  actorGuestId === g.guest_id
+                    ? "bg-warning text-black shadow-sm"
+                    : "border border-warning/40 bg-surface/60 text-warning hover:bg-surface/80"
+                }`}
+              >
+                {g.display_name} ({g.weight_lbs} lb · {g.sex})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (actorGuestId === g.guest_id) setActorGuestId(null);
+                  void onRemoveGuest(g.guest_id);
+                }}
+                className="rounded-full border border-border/40 px-1.5 py-1 text-[10px] text-muted hover:border-danger/50 hover:text-danger"
+                aria-label={`Remove ${g.display_name}`}
+                title="Remove this guest"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Time picker — sticky-feeling, applies to whatever you tap next */}
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -729,18 +984,27 @@ function LogTab({
       </section>
 
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
-        <h3 className="text-lg font-semibold text-info">Your log</h3>
-        {meMember && (
+        <h3 className="text-lg font-semibold text-info">
+          {activeGuest ? `${activeGuest.display_name}'s log` : "Your log"}
+        </h3>
+        {activeGuest ? (
           <p className="text-xs text-muted">
-            BAC math uses {meMember.weight_lbs} lb · {meMember.sex} (your profile when you joined).
-            Tap a timestamp to back-date or correct it.
+            BAC math uses {activeGuest.weight_lbs} lb · {activeGuest.sex}. Entries you log while
+            this guest is selected get attributed to them.
           </p>
+        ) : (
+          meMember && (
+            <p className="text-xs text-muted">
+              BAC math uses {meMember.weight_lbs} lb · {meMember.sex} (your profile when you joined).
+              Tap a timestamp to back-date or correct it.
+            </p>
+          )
         )}
-        {myEntries.length === 0 ? (
+        {visibleEntries.length === 0 ? (
           <p className="mt-3 text-sm text-muted">Nothing yet. Tap a preset above.</p>
         ) : (
           <ul className="mt-3 grid gap-2">
-            {myEntries
+            {visibleEntries
               .slice()
               .reverse()
               .slice(0, 50)
@@ -911,12 +1175,12 @@ const TIMELINE_LOOKBACK_HOURS = 12;
 const TIMELINE_LOOKAHEAD_HOURS = 4;
 
 function Timeline({
-  state, now, profileById, entriesByMember,
+  state, now, profileById, entriesByActor,
 }: {
   state: SessionState;
   now: Date;
   profileById: Map<string, MemberProfile>;
-  entriesByMember: Map<string, Entry[]>;
+  entriesByActor: Map<string, Entry[]>;
 }) {
   if (state.entries.length === 0) {
     return (
@@ -926,21 +1190,39 @@ function Timeline({
     );
   }
 
-  const members = state.members.filter((m) => !m.left_at);
+  type TimelineActor = { id: string; display_name: string; isMe: boolean; isGuest: boolean };
+  const actors: TimelineActor[] = [
+    ...state.members
+      .filter((m) => !m.left_at)
+      .map<TimelineActor>((m) => ({
+        id: m.entrant_id,
+        display_name: m.display_name,
+        isMe: m.entrant_id === state.me,
+        isGuest: false,
+      })),
+    ...state.guests
+      .filter((g) => !g.removed_at)
+      .map<TimelineActor>((g) => ({
+        id: g.guest_id,
+        display_name: g.display_name,
+        isMe: false,
+        isGuest: true,
+      })),
+  ];
 
   return (
     <section className="grid gap-4">
-      {members.map((m) => {
-        const profile = profileById.get(m.entrant_id);
+      {actors.map((a) => {
+        const profile = profileById.get(a.id);
         if (!profile) return null;
-        const entries = entriesByMember.get(m.entrant_id) ?? [];
+        const entries = entriesByActor.get(a.id) ?? [];
         if (entries.length === 0) return null;
-        const isMe = m.entrant_id === state.me;
         return (
           <MemberDecayCard
-            key={m.entrant_id}
-            label={m.display_name}
-            isMe={isMe}
+            key={a.id}
+            label={a.display_name}
+            isMe={a.isMe}
+            isGuest={a.isGuest}
             profile={profile}
             entries={entries}
             now={now}
@@ -952,10 +1234,11 @@ function Timeline({
 }
 
 function MemberDecayCard({
-  label, isMe, profile, entries, now,
+  label, isMe, isGuest = false, profile, entries, now,
 }: {
   label: string;
   isMe: boolean;
+  isGuest?: boolean;
   profile: MemberProfile;
   entries: Entry[];
   now: Date;
@@ -1008,12 +1291,14 @@ function MemberDecayCard({
   return (
     <div
       className={`rounded-[1.5rem] border p-5 ${
-        isMe ? "border-accent/60 bg-surface/55" : "border-border/40 bg-surface/35"
+        isMe ? "border-accent/60 bg-surface/55"
+          : isGuest ? "border-warning/50 bg-surface/35"
+          : "border-border/40 bg-surface/35"
       }`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.3em] text-muted">{isMe ? "You" : "Member"}</p>
+          <p className="text-[11px] uppercase tracking-[0.3em] text-muted">{isMe ? "You" : isGuest ? "Guest" : "Member"}</p>
           <h3 className="mt-1 text-lg font-semibold text-text">{label}</h3>
         </div>
         <div className="flex items-baseline gap-3 text-right text-xs">

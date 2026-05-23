@@ -120,6 +120,14 @@ export async function POST(
       }
     }
 
+    // 2b) Re-point every guest from source → target. Guests are session-scoped,
+    // so the cleanest thing is just to update their session_id.
+    const { error: moveGuestsErr } = await supabaseAdmin
+      .from("drink_session_guests")
+      .update({ session_id: target.session_id })
+      .eq("session_id", source.session_id);
+    if (moveGuestsErr) throw new Error(moveGuestsErr.message);
+
     // 3) End the source session so nobody keeps logging into it.
     const { error: endErr } = await supabaseAdmin
       .from("drink_sessions")
