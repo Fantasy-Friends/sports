@@ -15,12 +15,12 @@ type EntryRow = {
   session_id: string;
   entrant_id: string | null;
   guest_id: string | null;
-  kind: "drink" | "caffeine" | "water" | "substance";
+  kind: "drink" | "caffeine" | "water" | "substance" | "activity";
   payload: Record<string, unknown>;
   occurred_at: string;
 };
 
-const VALID_KINDS = new Set(["drink", "caffeine", "water", "substance"]);
+const VALID_KINDS = new Set(["drink", "caffeine", "water", "substance", "activity"]);
 
 async function loadSession(code: string) {
   const { data } = await supabaseAdmin
