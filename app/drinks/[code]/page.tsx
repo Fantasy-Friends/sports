@@ -9,6 +9,7 @@ import {
   ACTIVITY_PRESETS,
   ALCOHOL_PRESETS,
   CAFFEINE_PRESETS,
+  FOOD_PRESETS,
   HYDRATION_GOAL_OZ,
   SUBSTANCE_COLORS,
   SUBSTANCE_PRESETS,
@@ -19,15 +20,19 @@ import {
   caffeineMgRemaining,
   caffeineSeries,
   calcBAC,
+  hangoverForecast,
   riskLevel,
   substanceFraction,
   waterOzRecent,
   type ActivityPayload,
   type Entry,
   type EntryKind,
+  type FoodPayload,
+  type HangoverForecast,
   type MemberProfile,
   type SeriesPoint,
   type Sex,
+  type SleepPayload,
   type SubstancePayload,
 } from "@/lib/drinks/math";
 
@@ -66,6 +71,7 @@ type SessionState = {
   members: MemberRow[];
   guests: GuestRow[];
   entries: Entry[];
+  age_by_entrant: Record<string, number>;
   is_member: boolean;
   me: string;
 };
@@ -665,6 +671,8 @@ function Stadium({
         const caffeine = caffeineMgRemaining(entries, now);
         const water = waterOzRecent(entries, now);
         const drugs = activeSubstances(entries, now);
+        const ageYears = state.age_by_entrant[a.id] ?? null;
+        const hangover = hangoverForecast(profile, entries, now, { age_years: ageYears });
         const workouts = activeActivities(entries, now);
         const risk = riskLevel(bac, drugs);
         const drinkCount = entries.filter((e) => e.kind === "drink").length;
@@ -709,6 +717,9 @@ function Stadium({
               />
             </div>
 
+            <HangoverPill forecast={hangover} />
+
+
             {(drugs.length > 0 || workouts.length > 0) && (
               <div className="mt-3 flex flex-wrap gap-1">
                 {workouts.map((w) => (
@@ -750,6 +761,39 @@ function Metric({ label, value, sub }: { label: string; value: string; sub?: str
   );
 }
 
+function HangoverPill({ forecast }: { forecast: HangoverForecast }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold"
+        style={{ borderColor: `${forecast.color}66`, backgroundColor: `${forecast.color}14`, color: forecast.color }}
+      >
+        <span>
+          Hangover forecast: <span className="font-bold uppercase tracking-wider">{forecast.bucket}</span>
+        </span>
+        <span className="font-mono text-[11px]">{Math.round(forecast.score)}/100 {open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-1 rounded-xl border border-border/30 bg-surface/40 px-3 py-2 text-[11px]">
+          {forecast.factors.map((f) => (
+            <li key={f.key} className="flex items-baseline justify-between gap-3">
+              <span className="text-muted">
+                <span className="font-semibold text-text">{f.label}</span> · {f.detail}
+              </span>
+              <span className="font-mono text-text">
+                {f.contribution >= 0 ? "+" : ""}{f.contribution.toFixed(1)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ─── Log tab — quick-add buttons + my recent entries ────────────────────────
 
 const QUICK_AGO_OPTIONS = [0, 15, 30, 60, 120] as const;
@@ -763,6 +807,8 @@ function kindColor(kind: EntryKind): string {
     : kind === "caffeine" ? "#fb923c"
     : kind === "water" ? "#22d3ee"
     : kind === "activity" ? "#4ade80"
+    : kind === "food" ? "#facc15"
+    : kind === "sleep" ? "#60a5fa"
     : "#a855f7";
 }
 
@@ -1125,6 +1171,24 @@ function LogTab({
         />
       </PresetPanel>
 
+      <PresetPanel id="food" title="Food" subtitle="Eating before/during drinking lowers your hangover forecast.">
+        <PresetGrid
+          presets={FOOD_PRESETS.map((p) => ({
+            label: `${p.name} · ${p.size}`,
+            payload: { preset: p.name, size: p.size } as FoodPayload,
+          }))}
+          disabled={busyKind !== null}
+          onPick={(payload) => handlePick("food", payload as Record<string, unknown>)}
+        />
+      </PresetPanel>
+
+      <PresetPanel id="sleep" title="Sleep" subtitle="Log how many hours you slept — sharpens the morning forecast.">
+        <SleepEntry
+          disabled={busyKind !== null}
+          onLog={(hours) => handlePick("sleep", { hours } as unknown as Record<string, unknown>)}
+        />
+      </PresetPanel>
+
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
         <h3 className="text-lg font-semibold text-info">
           {activeGuest ? `${activeGuest.display_name}'s log` : "Your log"}
@@ -1255,6 +1319,42 @@ function agoLabel(iso: string, now: Date): string {
   return `${(hrs / 24).toFixed(1)}d ago`;
 }
 
+function SleepEntry({
+  disabled, onLog,
+}: {
+  disabled: boolean;
+  onLog: (hours: number) => Promise<void>;
+}) {
+  const [hours, setHours] = useState("7");
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <label className="text-xs text-muted">Hours slept</label>
+      <input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        max={24}
+        step={0.5}
+        value={hours}
+        onChange={(e) => setHours(e.target.value)}
+        className="w-20 rounded-md border border-border/40 bg-surface/60 px-2 py-1 text-xs"
+      />
+      <button
+        type="button"
+        disabled={disabled || !hours}
+        onClick={() => {
+          const h = Number(hours);
+          if (Number.isFinite(h) && h >= 0 && h <= 24) void onLog(h);
+        }}
+        className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+      >
+        Log sleep
+      </button>
+      <span className="text-[11px] text-muted">Latest entry wins.</span>
+    </div>
+  );
+}
+
 function PresetGrid({
   presets, disabled, onPick,
 }: {
@@ -1285,6 +1385,8 @@ function KindBadge({ kind }: { kind: EntryKind }) {
     kind === "caffeine" ? "#fb923c" :
     kind === "water" ? "#22d3ee" :
     kind === "activity" ? "#4ade80" :
+    kind === "food" ? "#facc15" :
+    kind === "sleep" ? "#60a5fa" :
     "#a855f7";
   return (
     <span
@@ -1305,6 +1407,8 @@ function entryLabel(e: Entry): string {
   if (e.kind === "water") return `${p.oz ?? "?"}oz`;
   if (e.kind === "substance") return `${p.type ?? "substance"} (sev ${p.severity ?? "?"})`;
   if (e.kind === "activity") return `${p.intensity ?? "activity"} (${p.duration_minutes ?? "?"} min)`;
+  if (e.kind === "food") return `${p.size ?? "food"}`;
+  if (e.kind === "sleep") return `${p.hours ?? "?"} h slept`;
   return e.kind;
 }
 

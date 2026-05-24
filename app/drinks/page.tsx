@@ -10,6 +10,7 @@ type ProfileRow = {
   entrant_id: string;
   weight_lbs: number;
   sex: Sex;
+  age_years: number | null;
   display_name: string | null;
 };
 
@@ -32,6 +33,7 @@ export default function DrinkTrackerHubPage() {
   // Profile form
   const [weight, setWeight] = useState<string>("");
   const [sex, setSex] = useState<Sex>("male");
+  const [age, setAge] = useState<string>("");
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Create / join
@@ -55,6 +57,7 @@ export default function DrinkTrackerHubPage() {
           setProfile(profileJson.profile);
           setWeight(String(profileJson.profile.weight_lbs));
           setSex(profileJson.profile.sex);
+          if (profileJson.profile.age_years) setAge(String(profileJson.profile.age_years));
         }
         if (profileJson?.entrant_name) setEntrantName(profileJson.entrant_name);
         setSessions(sessionsJson?.sessions ?? []);
@@ -75,10 +78,16 @@ export default function DrinkTrackerHubPage() {
     }
     setSavingProfile(true);
     try {
+      const ageNum = age.trim() ? Number(age) : null;
       const res = await fetch("/api/drinks/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weight_lbs: w, sex, display_name: entrantName }),
+        body: JSON.stringify({
+          weight_lbs: w,
+          sex,
+          age_years: ageNum,
+          display_name: entrantName,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to save");
@@ -180,6 +189,20 @@ export default function DrinkTrackerHubPage() {
               <option value="female">Female (Widmark 0.55)</option>
               <option value="other">Other (Widmark 0.61)</option>
             </select>
+
+            <label className="mt-3 block text-xs uppercase tracking-wider text-muted">
+              Age (optional, used by hangover forecast)
+            </label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={18}
+              max={100}
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-border/40 bg-surface/60 px-3 py-2 text-sm"
+              placeholder="e.g. 32"
+            />
 
             <button
               type="button"

@@ -64,7 +64,7 @@ export const ACTIVITY_COLORS: Record<ActivityIntensity, string> = {
   vigorous: "#22c55e",
 };
 
-export type EntryKind = "drink" | "caffeine" | "water" | "substance" | "activity";
+export type EntryKind = "drink" | "caffeine" | "water" | "substance" | "activity" | "food" | "sleep";
 
 export type Entry = {
   entry_id: string;
@@ -307,29 +307,43 @@ export function riskLevel(bac: number, drugs: ActiveSubstance[]): RiskLevel {
 
 // ─── Presets (mirror the standalone HTML) ──────────────────────────────────
 
-export const ALCOHOL_PRESETS = [
-  { name: "Beer (12oz/5%)", oz: 12, abv: 0.05 },
-  { name: "Pint Beer (16oz/5%)", oz: 16, abv: 0.05 },
-  { name: "IPA (16oz/7%)", oz: 16, abv: 0.07 },
-  { name: "Pint IPA (16oz/8%)", oz: 16, abv: 0.08 },
-  { name: "Heavy IPA (16oz/9%)", oz: 16, abv: 0.09 },
-  { name: "Light Beer (12oz/4.2%)", oz: 12, abv: 0.042 },
-  { name: "1L Beer (5%)", oz: 33.814, abv: 0.05 },
-  { name: "1L Light Beer (4.2%)", oz: 33.814, abv: 0.042 },
-  { name: "1L IPA (7%)", oz: 33.814, abv: 0.07 },
-  { name: "Wine (5oz/13%)", oz: 5, abv: 0.13 },
-  { name: "Big Pour Wine (8oz/14%)", oz: 8, abv: 0.14 },
-  { name: "Mimosa (6oz/6%)", oz: 6, abv: 0.06 },
-  { name: "Cocktail (1.5oz)", oz: 1.5, abv: 0.4 },
-  { name: "Strong Cocktail (2.5oz)", oz: 2.5, abv: 0.4 },
-  { name: "Double (3oz)", oz: 3, abv: 0.4 },
-  { name: "Triple (4oz)", oz: 4, abv: 0.4 },
-  { name: "Heavy Pour (5oz)", oz: 5, abv: 0.4 },
-  { name: "Vodka Soda", oz: 1.5, abv: 0.4 },
-  { name: "Shot (1oz)", oz: 1, abv: 0.4 },
-  { name: "Jello Shot", oz: 0.5, abv: 0.4 },
-  { name: "Hard Seltzer", oz: 12, abv: 0.05 },
-] as const;
+export type CongenerLoad = "low" | "med" | "high";
+
+// `congener` tags drive the Hangover Forecast — dark spirits & red wine
+// carry up to ~30× more congeners than clear spirits and correlate with
+// worse next-day symptoms. Defaults to "med" when ambiguous (the drink
+// could be made with any spirit).
+export const ALCOHOL_PRESETS: ReadonlyArray<{
+  name: string; oz: number; abv: number; congener: CongenerLoad;
+}> = [
+  { name: "Beer (12oz/5%)",         oz: 12,    abv: 0.05,  congener: "low" },
+  { name: "Pint Beer (16oz/5%)",    oz: 16,    abv: 0.05,  congener: "low" },
+  { name: "IPA (16oz/7%)",          oz: 16,    abv: 0.07,  congener: "med" },
+  { name: "Pint IPA (16oz/8%)",     oz: 16,    abv: 0.08,  congener: "med" },
+  { name: "Heavy IPA (16oz/9%)",    oz: 16,    abv: 0.09,  congener: "med" },
+  { name: "Light Beer (12oz/4.2%)", oz: 12,    abv: 0.042, congener: "low" },
+  { name: "1L Beer (5%)",           oz: 33.814, abv: 0.05, congener: "low" },
+  { name: "1L Light Beer (4.2%)",   oz: 33.814, abv: 0.042, congener: "low" },
+  { name: "1L IPA (7%)",            oz: 33.814, abv: 0.07, congener: "med" },
+  { name: "Wine (5oz/13%)",         oz: 5,     abv: 0.13,  congener: "med" },
+  { name: "Red Wine (5oz/13%)",     oz: 5,     abv: 0.13,  congener: "high" },
+  { name: "Big Pour Wine (8oz/14%)", oz: 8,    abv: 0.14,  congener: "med" },
+  { name: "Mimosa (6oz/6%)",        oz: 6,     abv: 0.06,  congener: "low" },
+  { name: "Cocktail (1.5oz)",       oz: 1.5,   abv: 0.4,   congener: "med" },
+  { name: "Strong Cocktail (2.5oz)", oz: 2.5,  abv: 0.4,   congener: "med" },
+  { name: "Double (3oz)",           oz: 3,     abv: 0.4,   congener: "med" },
+  { name: "Triple (4oz)",           oz: 4,     abv: 0.4,   congener: "med" },
+  { name: "Heavy Pour (5oz)",       oz: 5,     abv: 0.4,   congener: "med" },
+  { name: "Vodka Soda",             oz: 1.5,   abv: 0.4,   congener: "low" },
+  { name: "Bourbon / Whiskey neat (2oz)", oz: 2, abv: 0.4, congener: "high" },
+  { name: "Dark Rum (2oz)",         oz: 2,     abv: 0.4,   congener: "high" },
+  { name: "Tequila Reposado (1.5oz)", oz: 1.5, abv: 0.4,   congener: "high" },
+  { name: "Shot (1oz)",             oz: 1,     abv: 0.4,   congener: "med" },
+  { name: "Jello Shot",             oz: 0.5,   abv: 0.4,   congener: "med" },
+  { name: "Hard Seltzer",           oz: 12,    abv: 0.05,  congener: "low" },
+];
+
+const CONGENER_SCORE: Record<CongenerLoad, number> = { low: 0.2, med: 0.5, high: 1.0 };
 
 export const WATER_PRESETS = [
   { name: "Glass (8oz)", oz: 8 },
@@ -468,6 +482,290 @@ export function activeActivities(entries: Entry[], now: Date): ActiveActivity[] 
     });
   }
   return out;
+}
+
+// ─── Food + sleep entries (hangover-forecast inputs) ───────────────────────
+
+export type FoodSize = "snack" | "meal" | "heavy";
+
+export type FoodPayload = {
+  preset?: string;
+  size: FoodSize;
+  notes?: string;
+};
+
+export const FOOD_PRESETS: ReadonlyArray<{
+  name: string; size: FoodSize;
+}> = [
+  { name: "Light snack",       size: "snack" },
+  { name: "Chips / pretzels",  size: "snack" },
+  { name: "Appetizer",         size: "snack" },
+  { name: "Solid meal",        size: "meal" },
+  { name: "Burger / sandwich", size: "meal" },
+  { name: "Pasta / pizza",     size: "meal" },
+  { name: "Heavy meal",        size: "heavy" },
+  { name: "Steak dinner",      size: "heavy" },
+];
+
+export type SleepPayload = {
+  hours: number;
+  notes?: string;
+};
+
+// ─── Hangover Forecast ─────────────────────────────────────────────────────
+//
+// Predicts next-day misery on a 0–100 scale from the signals we already
+// have. Heavily weighted on total ethanol + peak BAC, with multipliers
+// for the supporting factors (congeners, dehydration, sleep, food, etc.).
+
+export type HangoverFactorKey =
+  | "ethanol"
+  | "peak_bac"
+  | "congeners"
+  | "dehydration"
+  | "stimulant_load"
+  | "pace"
+  | "sleep"
+  | "depressant_load"
+  | "time_over_0_08"
+  | "food"
+  | "age";
+
+export type HangoverFactor = {
+  key: HangoverFactorKey;
+  label: string;
+  weight: number;       // 0–100 contribution to the score
+  contribution: number; // weight × normalized intensity
+  detail: string;
+};
+
+export type HangoverForecast = {
+  score: number;            // 0–100
+  bucket: "minimal" | "mild" | "moderate" | "rough" | "brutal";
+  color: string;
+  factors: HangoverFactor[];
+  // Useful derived values surfaced for the UI
+  total_ethanol_g: number;
+  peak_bac: number;
+  drink_count: number;
+};
+
+function bucketForScore(s: number): { bucket: HangoverForecast["bucket"]; color: string } {
+  if (s < 15) return { bucket: "minimal", color: "#22c55e" };
+  if (s < 30) return { bucket: "mild",    color: "#84cc16" };
+  if (s < 50) return { bucket: "moderate", color: "#eab308" };
+  if (s < 75) return { bucket: "rough",   color: "#f97316" };
+  return       { bucket: "brutal",  color: "#ef4444" };
+}
+
+function peakBacOf(profile: MemberProfile, entries: Entry[], now: Date): number {
+  // Sample every 5 min from the first drink to `now` (peak can't lie outside).
+  let earliestDrink = Number.POSITIVE_INFINITY;
+  for (const e of entries) {
+    if (e.kind !== "drink") continue;
+    const t = new Date(e.occurred_at).getTime();
+    if (Number.isFinite(t) && t < earliestDrink) earliestDrink = t;
+  }
+  if (!Number.isFinite(earliestDrink)) return 0;
+  const step = 5 * 60_000;
+  let peak = 0;
+  for (let t = earliestDrink; t <= now.getTime(); t += step) {
+    const bac = calcBAC(profile, entries, new Date(t));
+    if (bac > peak) peak = bac;
+  }
+  return peak;
+}
+
+export function hangoverForecast(
+  profile: MemberProfile,
+  entries: Entry[],
+  now: Date,
+  options?: { age_years?: number | null },
+): HangoverForecast {
+  // —— derive signals ——
+  let totalEthanolG = 0;
+  let congenerScore = 0;
+  let drinkCount = 0;
+  let firstDrinkMs = Number.POSITIVE_INFINITY;
+  let lastDrinkMs = 0;
+  const hourlyGrams = new Map<number, number>(); // hour bucket → grams
+  for (const e of entries) {
+    if (e.kind !== "drink") continue;
+    const p = e.payload as DrinkPayload & { congener?: CongenerLoad };
+    if (typeof p?.oz !== "number" || typeof p?.abv !== "number") continue;
+    const grams = p.oz * 29.5735 * p.abv * (typeof p.pct === "number" ? p.pct : 1) * 0.789;
+    if (grams <= 0) continue;
+    totalEthanolG += grams;
+    drinkCount += 1;
+    congenerScore += CONGENER_SCORE[p.congener ?? "med"];
+    const t = new Date(e.occurred_at).getTime();
+    if (Number.isFinite(t)) {
+      if (t < firstDrinkMs) firstDrinkMs = t;
+      if (t > lastDrinkMs) lastDrinkMs = t;
+      const hour = Math.floor(t / 3600_000);
+      hourlyGrams.set(hour, (hourlyGrams.get(hour) ?? 0) + grams);
+    }
+  }
+  const avgCongener = drinkCount > 0 ? congenerScore / drinkCount : 0;
+  const peakBac = peakBacOf(profile, entries, now);
+
+  // Time over 0.08 (rough proxy via the same 5-min sampling)
+  let hoursOver08 = 0;
+  if (Number.isFinite(firstDrinkMs)) {
+    const step = 5 * 60_000;
+    let samplesOver = 0;
+    let samples = 0;
+    for (let t = firstDrinkMs; t <= now.getTime(); t += step) {
+      const bac = calcBAC(profile, entries, new Date(t));
+      if (bac > 0.08) samplesOver += 1;
+      samples += 1;
+    }
+    if (samples > 0) hoursOver08 = (samplesOver * step) / 3600_000;
+  }
+
+  // Dehydration: water consumed in the same window vs. a generous goal
+  const sessionHours = Number.isFinite(firstDrinkMs)
+    ? Math.max(0, (now.getTime() - firstDrinkMs) / 3600_000)
+    : 0;
+  const hydrationGoal = Math.max(HYDRATION_GOAL_OZ, sessionHours * 8); // ~8oz/h while drinking
+  const waterOz = waterOzRecent(entries, now);
+  const dehydrationDeficit = Math.max(0, 1 - waterOz / Math.max(1, hydrationGoal));
+
+  // Stimulant load: residual caffeine + active nicotine + stimulants
+  const cafMg = caffeineMgRemaining(entries, now);
+  const drugs = activeSubstances(entries, now);
+  const nicotineLoad = drugs.filter((d) => d.type === "nicotine").reduce((s, d) => s + d.severity * d.fraction, 0);
+  const stimulantLoad = drugs.filter((d) => d.type === "stimulant").reduce((s, d) => s + d.severity * d.fraction, 0);
+  const stimulantSignal = Math.min(1, cafMg / 400 + nicotineLoad * 0.25 + stimulantLoad * 0.2);
+
+  // Depressants (benzos + THC + opioids): amplifies severity
+  const depressantLoad = drugs
+    .filter((d) => d.type === "benzo" || d.type === "thc" || d.type === "opioid")
+    .reduce((s, d) => s + d.severity * d.fraction, 0);
+
+  // Pace: grams of ethanol in the heaviest hour
+  let peakHourGrams = 0;
+  for (const g of hourlyGrams.values()) {
+    if (g > peakHourGrams) peakHourGrams = g;
+  }
+
+  // Sleep (latest sleep entry)
+  let sleepHours: number | null = null;
+  for (const e of entries) {
+    if (e.kind !== "sleep") continue;
+    const p = e.payload as Partial<SleepPayload>;
+    if (typeof p?.hours === "number" && Number.isFinite(p.hours)) sleepHours = p.hours;
+  }
+  const sleepDeficit = sleepHours === null ? null : Math.max(0, Math.min(1, (7.5 - sleepHours) / 7.5));
+
+  // Food helpfulness: any solid food during/before drinking reduces hangover.
+  let foodScore = 0; // 0 = no food, 1 = heavy meal pre-game
+  for (const e of entries) {
+    if (e.kind !== "food") continue;
+    const p = e.payload as Partial<FoodPayload>;
+    const size = p?.size === "heavy" ? 1.0 : p?.size === "meal" ? 0.7 : 0.3;
+    const t = new Date(e.occurred_at).getTime();
+    // Eating BEFORE the first drink helps most; during, modestly; after, little.
+    let timing = 0.5;
+    if (Number.isFinite(firstDrinkMs) && Number.isFinite(t)) {
+      if (t <= firstDrinkMs) timing = 1.0;
+      else if (t <= lastDrinkMs) timing = 0.7;
+      else timing = 0.2;
+    }
+    foodScore = Math.max(foodScore, size * timing);
+  }
+
+  // Age multiplier (very rough): >30 starts adding misery, >50 is a big jump.
+  const age = options?.age_years ?? null;
+  const ageSignal = age === null
+    ? 0
+    : Math.max(0, Math.min(1, (age - 25) / 40)); // 25 → 0, 65 → 1
+
+  // —— turn signals into weighted contributions ——
+  const factors: HangoverFactor[] = [];
+  const add = (
+    key: HangoverFactorKey, label: string, weight: number, intensity: number, detail: string,
+  ) => {
+    const clamped = Math.max(0, Math.min(1, intensity));
+    factors.push({ key, label, weight, contribution: weight * clamped, detail });
+  };
+
+  add(
+    "ethanol", "Total ethanol", 30,
+    Math.min(1, totalEthanolG / 200),
+    `${totalEthanolG.toFixed(0)} g (≈ ${(totalEthanolG / 14).toFixed(1)} std drinks)`,
+  );
+  add(
+    "peak_bac", "Peak BAC", 25,
+    Math.min(1, peakBac / 0.20),
+    `Peaked at ${peakBac.toFixed(3)}`,
+  );
+  add(
+    "congeners", "Congeners", 12,
+    avgCongener,
+    drinkCount === 0 ? "—" : `avg load ${(avgCongener * 100).toFixed(0)}% (dark spirits/red wine)`,
+  );
+  add(
+    "dehydration", "Dehydration", 10,
+    dehydrationDeficit,
+    `${Math.round(waterOz)} oz water vs ${Math.round(hydrationGoal)} oz goal`,
+  );
+  add(
+    "stimulant_load", "Stimulants & nicotine", 8,
+    stimulantSignal,
+    `${Math.round(cafMg)} mg caffeine, ${nicotineLoad.toFixed(1)} nicotine`,
+  );
+  add(
+    "pace", "Drinking pace", 5,
+    Math.min(1, peakHourGrams / 60),
+    `${peakHourGrams.toFixed(0)} g in heaviest hour`,
+  );
+  add(
+    "time_over_0_08", "Time over 0.08 BAC", 4,
+    Math.min(1, hoursOver08 / 6),
+    `${hoursOver08.toFixed(1)} h above 0.08`,
+  );
+  add(
+    "depressant_load", "Benzos / THC / opioids", 3,
+    Math.min(1, depressantLoad / 5),
+    depressantLoad > 0 ? `load ${depressantLoad.toFixed(1)}` : "—",
+  );
+  if (sleepDeficit !== null) {
+    add(
+      "sleep", "Sleep deficit", 8,
+      sleepDeficit,
+      `${sleepHours?.toFixed(1)} h logged`,
+    );
+  }
+  // Food REDUCES the score — represent it as a negative-direction factor.
+  if (foodScore > 0) {
+    factors.push({
+      key: "food",
+      label: "Food intake (reduces)",
+      weight: -6,
+      contribution: -6 * foodScore,
+      detail: foodScore >= 0.7 ? "solid meal before/during" : "snack only",
+    });
+  }
+  add(
+    "age", "Age", 5,
+    ageSignal,
+    age === null ? "not set" : `${age} y/o`,
+  );
+
+  const raw = factors.reduce((s, f) => s + f.contribution, 0);
+  const score = Math.max(0, Math.min(100, raw));
+  const { bucket, color } = bucketForScore(score);
+
+  return {
+    score,
+    bucket,
+    color,
+    factors,
+    total_ethanol_g: totalEthanolG,
+    peak_bac: peakBac,
+    drink_count: drinkCount,
+  };
 }
 
 // ─── Time series for charts ─────────────────────────────────────────────────
