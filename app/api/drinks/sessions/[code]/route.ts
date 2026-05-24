@@ -84,15 +84,33 @@ export async function GET(
         .order("occurred_at", { ascending: true }),
     ]);
 
-    const isMember = ((members ?? []) as MemberRow[]).some(
+    const memberRows = (members ?? []) as MemberRow[];
+    const isMember = memberRows.some(
       (m) => m.entrant_id === auth.entrant.entrant_id && !m.left_at,
     );
 
+    // Age is used by the Hangover Forecast. Pull it once for all members from
+    // drink_profiles so each Stadium card can include it without N round-trips.
+    const entrantIds = memberRows.map((m) => m.entrant_id);
+    const ageByEntrant: Record<string, number> = {};
+    if (entrantIds.length > 0) {
+      const { data: profiles } = await supabaseAdmin
+        .from("drink_profiles")
+        .select("entrant_id, age_years")
+        .in("entrant_id", entrantIds);
+      for (const row of (profiles ?? []) as Array<{ entrant_id: string; age_years: number | null }>) {
+        if (row.age_years !== null && row.age_years !== undefined) {
+          ageByEntrant[row.entrant_id] = row.age_years;
+        }
+      }
+    }
+
     return NextResponse.json({
       session,
-      members: (members ?? []) as MemberRow[],
+      members: memberRows,
       guests: (guests ?? []) as GuestRow[],
       entries: (entries ?? []) as EntryRow[],
+      age_by_entrant: ageByEntrant,
       is_member: isMember,
       me: auth.entrant.entrant_id,
     });
