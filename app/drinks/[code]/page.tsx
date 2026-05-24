@@ -5,12 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import {
+  ACTIVITY_COLORS,
+  ACTIVITY_PRESETS,
   ALCOHOL_PRESETS,
   CAFFEINE_PRESETS,
   HYDRATION_GOAL_OZ,
   SUBSTANCE_COLORS,
   SUBSTANCE_PRESETS,
   WATER_PRESETS,
+  activeActivities,
   activeSubstances,
   bacSeries,
   caffeineMgRemaining,
@@ -19,6 +22,7 @@ import {
   riskLevel,
   substanceFraction,
   waterOzRecent,
+  type ActivityPayload,
   type Entry,
   type EntryKind,
   type MemberProfile,
@@ -661,6 +665,7 @@ function Stadium({
         const caffeine = caffeineMgRemaining(entries, now);
         const water = waterOzRecent(entries, now);
         const drugs = activeSubstances(entries, now);
+        const workouts = activeActivities(entries, now);
         const risk = riskLevel(bac, drugs);
         const drinkCount = entries.filter((e) => e.kind === "drink").length;
         const isMe = a.isMe;
@@ -704,8 +709,18 @@ function Stadium({
               />
             </div>
 
-            {drugs.length > 0 && (
+            {(drugs.length > 0 || workouts.length > 0) && (
               <div className="mt-3 flex flex-wrap gap-1">
+                {workouts.map((w) => (
+                  <span
+                    key={w.entry_id}
+                    className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ backgroundColor: `${ACTIVITY_COLORS[w.intensity]}24`, color: ACTIVITY_COLORS[w.intensity] }}
+                    title={`${w.preset ?? w.intensity} · burn ×${w.multiplier.toFixed(2)} · ${Math.round(w.minutes_remaining)} min left`}
+                  >
+                    {w.preset ?? w.intensity} · ×{w.multiplier.toFixed(2)}
+                  </span>
+                ))}
                 {drugs.map((d) => (
                   <span
                     key={d.entry_id}
@@ -984,6 +999,27 @@ function LogTab({
       </section>
 
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
+        <h3 className="text-lg font-semibold text-info">Activity</h3>
+        <p className="text-xs text-muted">
+          Workouts modestly speed up alcohol metabolism while you&rsquo;re moving
+          (light +5 %, moderate +15 %, vigorous +25 %). Effect ends when the
+          window does.
+        </p>
+        <PresetGrid
+          presets={ACTIVITY_PRESETS.map((p) => ({
+            label: `${p.name} · ${p.intensity}`,
+            payload: {
+              preset: p.name,
+              intensity: p.intensity,
+              duration_minutes: p.duration_minutes,
+            } as ActivityPayload,
+          }))}
+          disabled={busyKind !== null}
+          onPick={(payload) => handlePick("activity", payload as Record<string, unknown>)}
+        />
+      </section>
+
+      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
         <h3 className="text-lg font-semibold text-info">
           {activeGuest ? `${activeGuest.display_name}'s log` : "Your log"}
         </h3>
@@ -1142,6 +1178,7 @@ function KindBadge({ kind }: { kind: EntryKind }) {
     kind === "drink" ? "#ef4444" :
     kind === "caffeine" ? "#fb923c" :
     kind === "water" ? "#22d3ee" :
+    kind === "activity" ? "#4ade80" :
     "#a855f7";
   return (
     <span
@@ -1161,6 +1198,7 @@ function entryLabel(e: Entry): string {
   if (e.kind === "caffeine") return `${p.mg ?? "?"}mg`;
   if (e.kind === "water") return `${p.oz ?? "?"}oz`;
   if (e.kind === "substance") return `${p.type ?? "substance"} (sev ${p.severity ?? "?"})`;
+  if (e.kind === "activity") return `${p.intensity ?? "activity"} (${p.duration_minutes ?? "?"} min)`;
   return e.kind;
 }
 

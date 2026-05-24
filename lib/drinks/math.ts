@@ -40,7 +40,31 @@ export type SubstancePayload = {
   notes?: string;
 };
 
-export type EntryKind = "drink" | "caffeine" | "water" | "substance";
+export type ActivityIntensity = "light" | "moderate" | "vigorous";
+
+export type ActivityPayload = {
+  preset?: string;
+  intensity: ActivityIntensity;
+  duration_minutes: number;
+  notes?: string;
+};
+
+// While an activity is in progress, ethanol burn rate is boosted by this
+// multiplier (over baseline 0.015 BAC/hr). Conservative values picked from
+// the modest range supported by Pikaar 1988 / Kechagias 2017 style studies.
+export const ACTIVITY_METABOLISM_MULTIPLIER: Record<ActivityIntensity, number> = {
+  light: 1.05,
+  moderate: 1.15,
+  vigorous: 1.25,
+};
+
+export const ACTIVITY_COLORS: Record<ActivityIntensity, string> = {
+  light: "#86efac",
+  moderate: "#4ade80",
+  vigorous: "#22c55e",
+};
+
+export type EntryKind = "drink" | "caffeine" | "water" | "substance" | "activity";
 
 export type Entry = {
   entry_id: string;
@@ -68,13 +92,64 @@ export function lbsToKg(lbs: number): number {
   return lbs * 0.453592;
 }
 
+type ActivityWindow = { startMs: number; endMs: number; mult: number };
+
+function collectActivityWindows(entries: Entry[]): ActivityWindow[] {
+  const out: ActivityWindow[] = [];
+  for (const e of entries) {
+    if (e.kind !== "activity") continue;
+    const p = e.payload as Partial<ActivityPayload>;
+    if (!p || typeof p.duration_minutes !== "number" || !p.intensity) continue;
+    const t = new Date(e.occurred_at).getTime();
+    if (!Number.isFinite(t)) continue;
+    const mult = ACTIVITY_METABOLISM_MULTIPLIER[p.intensity] ?? 1;
+    if (mult > 1 && p.duration_minutes > 0) {
+      out.push({ startMs: t, endMs: t + p.duration_minutes * 60_000, mult });
+    }
+  }
+  return out;
+}
+
+// Integrate the (possibly time-varying) burn rate between t0 and t1, applying
+// activity multipliers on top of the base rate during workout windows.
+// Overlapping windows take the maximum multiplier (no compounding).
+function integrateBurn(
+  windows: ActivityWindow[],
+  baseRatePerHr: number,
+  t0: number,
+  t1: number,
+): number {
+  if (t1 <= t0) return 0;
+  if (windows.length === 0) return baseRatePerHr * (t1 - t0) / 3600000;
+  const bp = new Set<number>([t0, t1]);
+  for (const w of windows) {
+    if (w.endMs > t0 && w.startMs < t1) {
+      bp.add(Math.max(t0, w.startMs));
+      bp.add(Math.min(t1, w.endMs));
+    }
+  }
+  const sorted = [...bp].sort((a, b) => a - b);
+  let totalGrams = 0;
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    let mult = 1;
+    for (const w of windows) {
+      if (w.startMs <= a && w.endMs >= b && w.mult > mult) mult = w.mult;
+    }
+    totalGrams += baseRatePerHr * mult * (b - a) / 3600000;
+  }
+  return totalGrams;
+}
+
 // Grams of ethanol still in the body for a given member at `now`.
 // The body has ONE elimination rate (~0.015 BAC/hr ≈ a few grams/hr depending
 // on weight/sex), not one per drink. We integrate sequentially: accumulate
 // grams as each drink comes in, subtract the constant metabolism rate over
 // the gaps between drinks, then subtract once more from the last drink to
 // `now`. Clamping to 0 between events lets the clock "reset" cleanly when
-// the system fully clears before the next drink.
+// the system fully clears before the next drink. During logged activity
+// windows the burn rate gets a small intensity-dependent boost.
 export function alcoholGramsRemaining(
   profile: MemberProfile,
   entries: Entry[],
@@ -82,9 +157,10 @@ export function alcoholGramsRemaining(
 ): number {
   const weightKg = lbsToKg(profile.weight_lbs);
   const r = widmarkR(profile.sex);
-  const metabRate = ALCOHOL_METABOLISM * weightKg * r * 10; // grams/hr (whole body)
+  const metabRate = ALCOHOL_METABOLISM * weightKg * r * 10; // grams/hr (whole body, resting)
 
   const nowMs = now.getTime();
+  const windows = collectActivityWindows(entries);
   const drinks: Array<{ t: number; grams: number }> = [];
   for (const e of entries) {
     if (e.kind !== "drink") continue;
@@ -103,13 +179,13 @@ export function alcoholGramsRemaining(
   let grams = 0;
   let lastT = drinks[0].t;
   for (const d of drinks) {
-    const gapHrs = Math.max(0, (d.t - lastT) / 3600000);
-    grams = Math.max(0, grams - metabRate * gapHrs);
+    const burn = integrateBurn(windows, metabRate, lastT, d.t);
+    grams = Math.max(0, grams - burn);
     grams += d.grams;
     lastT = d.t;
   }
-  const tailHrs = Math.max(0, (nowMs - lastT) / 3600000);
-  return Math.max(0, grams - metabRate * tailHrs);
+  const tailBurn = integrateBurn(windows, metabRate, lastT, nowMs);
+  return Math.max(0, grams - tailBurn);
 }
 
 export function calcBAC(profile: MemberProfile, entries: Entry[], now: Date): number {
@@ -321,6 +397,59 @@ export const SUBSTANCE_COLORS: Record<SubstancePayload["type"], string> = {
   nicotine: "#eab308",
   other: "#9ca3af",
 };
+
+// ─── Activities (starter set; iterate freely on this) ──────────────────────
+
+export const ACTIVITY_PRESETS: ReadonlyArray<{
+  name: string;
+  intensity: ActivityIntensity;
+  duration_minutes: number;
+}> = [
+  { name: "Walk (30 min)",         intensity: "light",     duration_minutes: 30 },
+  { name: "Walk (60 min)",         intensity: "light",     duration_minutes: 60 },
+  { name: "Yoga (45 min)",         intensity: "light",     duration_minutes: 45 },
+  { name: "Dancing (60 min)",      intensity: "moderate",  duration_minutes: 60 },
+  { name: "Bike ride (45 min)",    intensity: "moderate",  duration_minutes: 45 },
+  { name: "Hike (90 min)",         intensity: "moderate",  duration_minutes: 90 },
+  { name: "Jog (30 min)",          intensity: "vigorous",  duration_minutes: 30 },
+  { name: "Run (45 min)",          intensity: "vigorous",  duration_minutes: 45 },
+  { name: "Heavy workout (45 min)", intensity: "vigorous", duration_minutes: 45 },
+  { name: "Sweat sesh (60 min)",   intensity: "vigorous",  duration_minutes: 60 },
+];
+
+export type ActiveActivity = {
+  entry_id: string;
+  intensity: ActivityIntensity;
+  preset: string | undefined;
+  duration_minutes: number;
+  minutes_elapsed: number;
+  minutes_remaining: number;
+  multiplier: number;
+};
+
+// Activities currently in progress at `now` — used by Stadium pills.
+export function activeActivities(entries: Entry[], now: Date): ActiveActivity[] {
+  const out: ActiveActivity[] = [];
+  for (const e of entries) {
+    if (e.kind !== "activity") continue;
+    const p = e.payload as Partial<ActivityPayload>;
+    if (!p || typeof p.duration_minutes !== "number" || !p.intensity) continue;
+    const t = new Date(e.occurred_at).getTime();
+    if (!Number.isFinite(t)) continue;
+    const ageMin = (now.getTime() - t) / 60_000;
+    if (ageMin < 0 || ageMin >= p.duration_minutes) continue;
+    out.push({
+      entry_id: e.entry_id,
+      intensity: p.intensity,
+      preset: p.preset,
+      duration_minutes: p.duration_minutes,
+      minutes_elapsed: ageMin,
+      minutes_remaining: p.duration_minutes - ageMin,
+      multiplier: ACTIVITY_METABOLISM_MULTIPLIER[p.intensity] ?? 1,
+    });
+  }
+  return out;
+}
 
 // ─── Time series for charts ─────────────────────────────────────────────────
 //
