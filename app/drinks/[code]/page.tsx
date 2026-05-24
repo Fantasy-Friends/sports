@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import AppShell from "@/components/AppShell";
 import {
   ACTIVITY_COLORS,
@@ -754,6 +754,96 @@ function Metric({ label, value, sub }: { label: string; value: string; sub?: str
 
 const QUICK_AGO_OPTIONS = [0, 15, 30, 60, 120] as const;
 
+const RECENTS_KEY = "drink-tracker:recents";
+const RECENTS_MAX = 8;
+type RecentItem = { kind: EntryKind; label: string; payload: Record<string, unknown> };
+
+function kindColor(kind: EntryKind): string {
+  return kind === "drink" ? "#ef4444"
+    : kind === "caffeine" ? "#fb923c"
+    : kind === "water" ? "#22d3ee"
+    : kind === "activity" ? "#4ade80"
+    : "#a855f7";
+}
+
+function PresetPanel({
+  id, title, subtitle, defaultOpen = false, span2 = false, children,
+}: {
+  id: string;
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  span2?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const storageKey = `drink-tracker:panel:${id}`;
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(storageKey);
+      if (v !== null) setOpen(v === "1");
+    } catch { /* ignore */ }
+  }, [storageKey]);
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, open ? "1" : "0"); } catch { /* ignore */ }
+  }, [storageKey, open]);
+  return (
+    <section className={`soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 ${span2 ? "lg:col-span-2" : ""}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-start justify-between gap-3 text-left"
+        aria-expanded={open}
+      >
+        <div>
+          <h3 className="text-lg font-semibold text-info">{title}</h3>
+          {subtitle && <p className="text-xs text-muted">{subtitle}</p>}
+        </div>
+        <span className="select-none rounded-full border border-border/40 px-2 py-0.5 text-[11px] font-semibold text-muted">
+          {open ? "−" : "+"}
+        </span>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </section>
+  );
+}
+
+function RecentlyUsedRow({
+  items, onPick, disabled,
+}: {
+  items: RecentItem[];
+  onPick: (kind: EntryKind, payload: Record<string, unknown>) => Promise<void>;
+  disabled: boolean;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-lg font-semibold text-info">Recently used</h3>
+        <p className="text-[11px] uppercase tracking-wider text-muted">tap to log again</p>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {items.map((r, i) => {
+          const color = kindColor(r.kind);
+          return (
+            <button
+              key={`${r.kind}-${r.label}-${i}`}
+              type="button"
+              disabled={disabled}
+              onClick={() => void onPick(r.kind, r.payload)}
+              className="rounded-full border bg-surface/60 px-3 py-1.5 text-xs font-semibold transition-all hover:bg-surface/80 disabled:opacity-50"
+              style={{ borderColor: `${color}55`, color }}
+              title={`Log ${r.label} again`}
+            >
+              <span className="mr-1 opacity-60">{r.kind}</span>{r.label}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function toDateTimeLocal(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -794,15 +884,38 @@ function LogTab({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const previewDate = useMemo(() => computePickedDate(), [computePickedDate, now]);
 
+  // Recently-tapped presets, persisted per device.
+  const [recents, setRecents] = useState<RecentItem[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENTS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as RecentItem[];
+        if (Array.isArray(parsed)) setRecents(parsed.slice(0, RECENTS_MAX));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const pushRecent = useCallback((item: RecentItem) => {
+    setRecents((prev) => {
+      const filtered = prev.filter((r) => !(r.kind === item.kind && r.label === item.label));
+      const next = [item, ...filtered].slice(0, RECENTS_MAX);
+      try { localStorage.setItem(RECENTS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   const handlePick = useCallback(
     async (kind: EntryKind, payload: Record<string, unknown>) => {
       await onLog(kind, payload, computePickedDate(), actorGuestId);
+      const label = typeof payload.preset === "string" ? payload.preset : kind;
+      pushRecent({ kind, label, payload });
       // Snap back to "now" so the next quick log isn't accidentally back-dated.
       setQuickAgoMin(0);
       setUseCustom(false);
       setCustomLocal(toDateTimeLocal(new Date()));
     },
-    [onLog, computePickedDate, actorGuestId],
+    [onLog, computePickedDate, actorGuestId, pushRecent],
   );
 
   // The visible log shows whichever actor is currently selected.
@@ -939,9 +1052,9 @@ function LogTab({
         </div>
       </section>
 
-      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5">
-        <h3 className="text-lg font-semibold text-info">Drink</h3>
-        <p className="text-xs text-muted">Logs as alcohol for BAC math.</p>
+      <RecentlyUsedRow items={recents} onPick={handlePick} disabled={busyKind !== null} />
+
+      <PresetPanel id="drink" title="Drink" subtitle="Logs as alcohol for BAC math." defaultOpen>
         <PresetGrid
           presets={ALCOHOL_PRESETS.map((p) => ({
             label: p.name,
@@ -950,11 +1063,9 @@ function LogTab({
           disabled={busyKind !== null}
           onPick={(payload) => handlePick("drink", payload)}
         />
-      </section>
+      </PresetPanel>
 
-      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5">
-        <h3 className="text-lg font-semibold text-info">Water</h3>
-        <p className="text-xs text-muted">Counts toward 18-hour hydration.</p>
+      <PresetPanel id="water" title="Water" subtitle="Counts toward 18-hour hydration.">
         <PresetGrid
           presets={WATER_PRESETS.map((p) => ({
             label: p.name,
@@ -963,11 +1074,9 @@ function LogTab({
           disabled={busyKind !== null}
           onPick={(payload) => handlePick("water", payload)}
         />
-      </section>
+      </PresetPanel>
 
-      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5">
-        <h3 className="text-lg font-semibold text-info">Caffeine</h3>
-        <p className="text-xs text-muted">5-hour half-life curve.</p>
+      <PresetPanel id="caffeine" title="Caffeine" subtitle="5-hour half-life curve.">
         <PresetGrid
           presets={CAFFEINE_PRESETS.map((p) => ({
             label: p.name,
@@ -976,11 +1085,9 @@ function LogTab({
           disabled={busyKind !== null}
           onPick={(payload) => handlePick("caffeine", payload)}
         />
-      </section>
+      </PresetPanel>
 
-      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5">
-        <h3 className="text-lg font-semibold text-info">Substance</h3>
-        <p className="text-xs text-muted">Severity & duration drive risk.</p>
+      <PresetPanel id="substance" title="Substance" subtitle="Severity & duration drive risk.">
         <PresetGrid
           presets={SUBSTANCE_PRESETS.map((p) => ({
             label: p.name,
@@ -996,15 +1103,14 @@ function LogTab({
           disabled={busyKind !== null}
           onPick={(payload) => handlePick("substance", payload as Record<string, unknown>)}
         />
-      </section>
+      </PresetPanel>
 
-      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
-        <h3 className="text-lg font-semibold text-info">Activity</h3>
-        <p className="text-xs text-muted">
-          Workouts modestly speed up alcohol metabolism while you&rsquo;re moving
-          (light +5 %, moderate +15 %, vigorous +25 %). Effect ends when the
-          window does.
-        </p>
+      <PresetPanel
+        id="activity"
+        title="Activity"
+        subtitle="Workouts modestly speed up alcohol metabolism while you're moving (light +5 %, moderate +15 %, vigorous +25 %)."
+        span2
+      >
         <PresetGrid
           presets={ACTIVITY_PRESETS.map((p) => ({
             label: `${p.name} · ${p.intensity}`,
@@ -1017,7 +1123,7 @@ function LogTab({
           disabled={busyKind !== null}
           onPick={(payload) => handlePick("activity", payload as Record<string, unknown>)}
         />
-      </section>
+      </PresetPanel>
 
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
         <h3 className="text-lg font-semibold text-info">
