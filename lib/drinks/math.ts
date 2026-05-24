@@ -405,16 +405,36 @@ export const ACTIVITY_PRESETS: ReadonlyArray<{
   intensity: ActivityIntensity;
   duration_minutes: number;
 }> = [
-  { name: "Walk (30 min)",         intensity: "light",     duration_minutes: 30 },
-  { name: "Walk (60 min)",         intensity: "light",     duration_minutes: 60 },
-  { name: "Yoga (45 min)",         intensity: "light",     duration_minutes: 45 },
-  { name: "Dancing (60 min)",      intensity: "moderate",  duration_minutes: 60 },
-  { name: "Bike ride (45 min)",    intensity: "moderate",  duration_minutes: 45 },
-  { name: "Hike (90 min)",         intensity: "moderate",  duration_minutes: 90 },
-  { name: "Jog (30 min)",          intensity: "vigorous",  duration_minutes: 30 },
-  { name: "Run (45 min)",          intensity: "vigorous",  duration_minutes: 45 },
-  { name: "Heavy workout (45 min)", intensity: "vigorous", duration_minutes: 45 },
-  { name: "Sweat sesh (60 min)",   intensity: "vigorous",  duration_minutes: 60 },
+  // Light (+5 %) — strolling around, easy movement
+  { name: "Walk (30 min)",            intensity: "light",     duration_minutes: 30 },
+  { name: "Walk (60 min)",            intensity: "light",     duration_minutes: 60 },
+  { name: "Stretching (15 min)",      intensity: "light",     duration_minutes: 15 },
+  { name: "Yoga (45 min)",            intensity: "light",     duration_minutes: 45 },
+  { name: "Bowling (60 min)",         intensity: "light",     duration_minutes: 60 },
+  { name: "Golf cart 9 (90 min)",     intensity: "light",     duration_minutes: 90 },
+  // Moderate (+15 %) — yard games, pickup sports, party movement
+  { name: "Dancing (60 min)",         intensity: "moderate",  duration_minutes: 60 },
+  { name: "Cornhole / yard games (60 min)", intensity: "moderate", duration_minutes: 60 },
+  { name: "Frisbee (45 min)",         intensity: "moderate",  duration_minutes: 45 },
+  { name: "Volleyball (60 min)",      intensity: "moderate",  duration_minutes: 60 },
+  { name: "Pickleball (45 min)",      intensity: "moderate",  duration_minutes: 45 },
+  { name: "Casual basketball (45 min)", intensity: "moderate", duration_minutes: 45 },
+  { name: "Bike ride (45 min)",       intensity: "moderate",  duration_minutes: 45 },
+  { name: "Hike (90 min)",            intensity: "moderate",  duration_minutes: 90 },
+  { name: "Pool / casual swim (30 min)", intensity: "moderate", duration_minutes: 30 },
+  { name: "Golf walking 9 (2 hr)",    intensity: "moderate",  duration_minutes: 120 },
+  { name: "Golf walking 18 (4 hr)",   intensity: "moderate",  duration_minutes: 240 },
+  // Vigorous (+25 %) — actual workouts and competitive sports
+  { name: "Jog (30 min)",             intensity: "vigorous",  duration_minutes: 30 },
+  { name: "Run (45 min)",             intensity: "vigorous",  duration_minutes: 45 },
+  { name: "Sprint session (20 min)",  intensity: "vigorous",  duration_minutes: 20 },
+  { name: "Tennis singles (60 min)",  intensity: "vigorous",  duration_minutes: 60 },
+  { name: "Soccer (60 min)",          intensity: "vigorous",  duration_minutes: 60 },
+  { name: "Basketball game (45 min)", intensity: "vigorous",  duration_minutes: 45 },
+  { name: "Heavy workout (45 min)",   intensity: "vigorous",  duration_minutes: 45 },
+  { name: "Crossfit (45 min)",        intensity: "vigorous",  duration_minutes: 45 },
+  { name: "Sweat sesh (60 min)",      intensity: "vigorous",  duration_minutes: 60 },
+  { name: "Sex (30 min)",             intensity: "vigorous",  duration_minutes: 30 },
 ];
 
 export type ActiveActivity = {
