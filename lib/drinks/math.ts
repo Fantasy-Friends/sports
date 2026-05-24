@@ -434,7 +434,6 @@ export const ACTIVITY_PRESETS: ReadonlyArray<{
   { name: "Heavy workout (45 min)",   intensity: "vigorous",  duration_minutes: 45 },
   { name: "Crossfit (45 min)",        intensity: "vigorous",  duration_minutes: 45 },
   { name: "Sweat sesh (60 min)",      intensity: "vigorous",  duration_minutes: 60 },
-  { name: "Sex (30 min)",             intensity: "vigorous",  duration_minutes: 30 },
 ];
 
 export type ActiveActivity = {
