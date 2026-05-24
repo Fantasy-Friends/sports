@@ -64,7 +64,7 @@ export const ACTIVITY_COLORS: Record<ActivityIntensity, string> = {
   vigorous: "#22c55e",
 };
 
-export type EntryKind = "drink" | "caffeine" | "water" | "substance" | "activity" | "food" | "sleep";
+export type EntryKind = "drink" | "caffeine" | "water" | "substance" | "activity" | "food" | "sleep" | "vomit";
 
 export type Entry = {
   entry_id: string;
@@ -143,13 +143,18 @@ function integrateBurn(
 }
 
 // Grams of ethanol still in the body for a given member at `now`.
+//
 // The body has ONE elimination rate (~0.015 BAC/hr ≈ a few grams/hr depending
 // on weight/sex), not one per drink. We integrate sequentially: accumulate
 // grams as each drink comes in, subtract the constant metabolism rate over
-// the gaps between drinks, then subtract once more from the last drink to
-// `now`. Clamping to 0 between events lets the clock "reset" cleanly when
-// the system fully clears before the next drink. During logged activity
-// windows the burn rate gets a small intensity-dependent boost.
+// the gaps between events, then subtract once more from the last event to
+// `now`. During logged activity windows the burn rate gets a small
+// intensity-dependent boost (see integrateBurn).
+//
+// Vomit events expel a portion of *unabsorbed* stomach alcohol. We track a
+// virtual per-drink stomach pool (using a 60-min absorption window) purely
+// to compute that reduction — the bloodstream still uses the existing
+// instant-absorption assumption so the BAC chart stays consistent.
 export function alcoholGramsRemaining(
   profile: MemberProfile,
   entries: Entry[],
@@ -157,33 +162,63 @@ export function alcoholGramsRemaining(
 ): number {
   const weightKg = lbsToKg(profile.weight_lbs);
   const r = widmarkR(profile.sex);
-  const metabRate = ALCOHOL_METABOLISM * weightKg * r * 10; // grams/hr (whole body, resting)
+  const metabRate = ALCOHOL_METABOLISM * weightKg * r * 10; // grams/hr
 
   const nowMs = now.getTime();
   const windows = collectActivityWindows(entries);
-  const drinks: Array<{ t: number; grams: number }> = [];
-  for (const e of entries) {
-    if (e.kind !== "drink") continue;
-    const p = e.payload as DrinkPayload;
-    if (!p || typeof p.oz !== "number" || typeof p.abv !== "number") continue;
-    const t = new Date(e.occurred_at).getTime();
-    if (!Number.isFinite(t) || t > nowMs) continue; // future entries don't count yet
-    const pct = typeof p.pct === "number" ? p.pct : 1;
-    const grams = p.oz * 29.5735 * p.abv * pct * 0.789;
-    if (grams > 0) drinks.push({ t, grams });
-  }
-  if (drinks.length === 0) return 0;
 
-  drinks.sort((a, b) => a.t - b.t);
+  type Ev =
+    | { kind: "drink"; t: number; grams: number }
+    | { kind: "vomit"; t: number; severity: 1 | 2 | 3 };
+  const events: Ev[] = [];
+  for (const e of entries) {
+    const t = new Date(e.occurred_at).getTime();
+    if (!Number.isFinite(t) || t > nowMs) continue;
+    if (e.kind === "drink") {
+      const p = e.payload as DrinkPayload;
+      if (!p || typeof p.oz !== "number" || typeof p.abv !== "number") continue;
+      const pct = typeof p.pct === "number" ? p.pct : 1;
+      const grams = p.oz * 29.5735 * p.abv * pct * 0.789;
+      if (grams > 0) events.push({ kind: "drink", t, grams });
+    } else if (e.kind === "vomit") {
+      const p = e.payload as Partial<VomitPayload>;
+      const sevRaw = typeof p?.severity === "number" ? Math.round(p.severity) : 2;
+      const severity = (Math.max(1, Math.min(3, sevRaw)) as 1 | 2 | 3);
+      events.push({ kind: "vomit", t, severity });
+    }
+  }
+  if (events.length === 0) return 0;
+  events.sort((a, b) => a.t - b.t);
+
+  // stomach pool: per-drink "grams that could still be vomited out"
+  // gOriginal × (1 - ageMin/60) − gExpelled, clamped at 0.
+  const stomach: Array<{ t: number; gOriginal: number; gExpelled: number }> = [];
 
   let grams = 0;
-  let lastT = drinks[0].t;
-  for (const d of drinks) {
-    const burn = integrateBurn(windows, metabRate, lastT, d.t);
+  let lastT = events[0].t;
+  for (const ev of events) {
+    const burn = integrateBurn(windows, metabRate, lastT, ev.t);
     grams = Math.max(0, grams - burn);
-    grams += d.grams;
-    lastT = d.t;
+
+    if (ev.kind === "drink") {
+      grams += ev.grams;
+      stomach.push({ t: ev.t, gOriginal: ev.grams, gExpelled: 0 });
+    } else {
+      const mult = VOMIT_EXPEL_FRACTION[ev.severity];
+      for (const d of stomach) {
+        const ageMin = (ev.t - d.t) / 60_000;
+        if (ageMin < 0 || ageMin >= ABSORPTION_WINDOW_MIN) continue;
+        const stillUnabsorbed = d.gOriginal * (1 - ageMin / ABSORPTION_WINDOW_MIN);
+        const inStomach = Math.max(0, stillUnabsorbed - d.gExpelled);
+        if (inStomach <= 0) continue;
+        const expelled = inStomach * mult;
+        d.gExpelled += expelled;
+        grams = Math.max(0, grams - expelled);
+      }
+    }
+    lastT = ev.t;
   }
+
   const tailBurn = integrateBurn(windows, metabRate, lastT, nowMs);
   return Math.max(0, grams - tailBurn);
 }
@@ -512,6 +547,28 @@ export type SleepPayload = {
   notes?: string;
 };
 
+// ─── Vomit / GI events ─────────────────────────────────────────────────────
+// Severity 1 (mild) → expels ~30 % of stomach-resident alcohol
+// Severity 2 (normal) → ~50 %
+// Severity 3 (heavy) → ~70 % (some alcohol always escapes; pyloric sphincter etc.)
+// Only alcohol consumed within the last 60 min counts; older drinks have
+// already absorbed into the bloodstream and can't be vomited back.
+
+export type VomitPayload = {
+  preset?: string;
+  severity: 1 | 2 | 3;
+  notes?: string;
+};
+
+export const VOMIT_PRESETS: ReadonlyArray<{ name: string; severity: 1 | 2 | 3 }> = [
+  { name: "Mild",   severity: 1 },
+  { name: "Normal", severity: 2 },
+  { name: "Heavy",  severity: 3 },
+];
+
+const VOMIT_EXPEL_FRACTION: Record<1 | 2 | 3, number> = { 1: 0.30, 2: 0.50, 3: 0.70 };
+const ABSORPTION_WINDOW_MIN = 60;
+
 // ─── Hangover Forecast ─────────────────────────────────────────────────────
 //
 // Predicts next-day misery on a 0–100 scale from the signals we already
@@ -529,7 +586,8 @@ export type HangoverFactorKey =
   | "depressant_load"
   | "time_over_0_08"
   | "food"
-  | "age";
+  | "age"
+  | "vomit";
 
 export type HangoverFactor = {
   key: HangoverFactorKey;
@@ -658,6 +716,18 @@ export function hangoverForecast(
   }
   const sleepDeficit = sleepHours === null ? null : Math.max(0, Math.min(1, (7.5 - sleepHours) / 7.5));
 
+  // Vomit count — every event amplifies the hangover via dehydration + GI
+  // distress + a near-certain "overshoot" signal even when BAC came down.
+  let vomitCount = 0;
+  let vomitWeightedSeverity = 0;
+  for (const e of entries) {
+    if (e.kind !== "vomit") continue;
+    vomitCount += 1;
+    const p = e.payload as Partial<VomitPayload>;
+    const sev = typeof p?.severity === "number" ? Math.max(1, Math.min(3, p.severity)) : 2;
+    vomitWeightedSeverity += sev;
+  }
+
   // Food helpfulness: any solid food during/before drinking reduces hangover.
   let foodScore = 0; // 0 = no food, 1 = heavy meal pre-game
   for (const e of entries) {
@@ -729,6 +799,13 @@ export function hangoverForecast(
     "depressant_load", "Benzos / THC / opioids", 3,
     Math.min(1, depressantLoad / 5),
     depressantLoad > 0 ? `load ${depressantLoad.toFixed(1)}` : "—",
+  );
+  add(
+    "vomit", "Vomiting", 12,
+    Math.min(1, vomitWeightedSeverity / 6), // 3 normal vomits → max
+    vomitCount === 0
+      ? "none logged"
+      : `${vomitCount} event${vomitCount > 1 ? "s" : ""}, sev sum ${vomitWeightedSeverity}`,
   );
   if (sleepDeficit !== null) {
     add(

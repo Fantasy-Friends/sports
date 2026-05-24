@@ -10,6 +10,7 @@ import {
   ALCOHOL_PRESETS,
   CAFFEINE_PRESETS,
   FOOD_PRESETS,
+  VOMIT_PRESETS,
   HYDRATION_GOAL_OZ,
   SUBSTANCE_COLORS,
   SUBSTANCE_PRESETS,
@@ -34,6 +35,7 @@ import {
   type Sex,
   type SleepPayload,
   type SubstancePayload,
+  type VomitPayload,
 } from "@/lib/drinks/math";
 
 type SessionRow = {
@@ -809,6 +811,7 @@ function kindColor(kind: EntryKind): string {
     : kind === "activity" ? "#4ade80"
     : kind === "food" ? "#facc15"
     : kind === "sleep" ? "#60a5fa"
+    : kind === "vomit" ? "#84cc16"
     : "#a855f7";
 }
 
@@ -1189,6 +1192,21 @@ function LogTab({
         />
       </PresetPanel>
 
+      <PresetPanel
+        id="vomit"
+        title="Vomited"
+        subtitle="Removes unabsorbed stomach alcohol (last hour only) and amps the hangover forecast."
+      >
+        <PresetGrid
+          presets={VOMIT_PRESETS.map((p) => ({
+            label: p.name,
+            payload: { preset: p.name, severity: p.severity } as VomitPayload,
+          }))}
+          disabled={busyKind !== null}
+          onPick={(payload) => handlePick("vomit", payload as Record<string, unknown>)}
+        />
+      </PresetPanel>
+
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
         <h3 className="text-lg font-semibold text-info">
           {activeGuest ? `${activeGuest.display_name}'s log` : "Your log"}
@@ -1387,6 +1405,7 @@ function KindBadge({ kind }: { kind: EntryKind }) {
     kind === "activity" ? "#4ade80" :
     kind === "food" ? "#facc15" :
     kind === "sleep" ? "#60a5fa" :
+    kind === "vomit" ? "#84cc16" :
     "#a855f7";
   return (
     <span
@@ -1409,6 +1428,7 @@ function entryLabel(e: Entry): string {
   if (e.kind === "activity") return `${p.intensity ?? "activity"} (${p.duration_minutes ?? "?"} min)`;
   if (e.kind === "food") return `${p.size ?? "food"}`;
   if (e.kind === "sleep") return `${p.hours ?? "?"} h slept`;
+  if (e.kind === "vomit") return `vomited (sev ${p.severity ?? "?"})`;
   return e.kind;
 }
 
