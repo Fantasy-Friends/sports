@@ -134,6 +134,10 @@ export default function AdminPage() {
   const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("pga-championship");
   const [entrants, setEntrants] = useState<Entrant[]>([]);
   const [sessionEntrant, setSessionEntrant] = useState<Entrant | null>(null);
+  // Pool-agnostic admin check. The pool-scoped session above resolves to null
+  // for a not-yet-seeded pool (e.g. a fresh U.S. Open), so we can't rely on it
+  // to decide whether to show the "set up this pool" banner.
+  const [sessionIsAdmin, setSessionIsAdmin] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
 
@@ -166,6 +170,11 @@ export default function AdminPage() {
 
   const [activeTab, setActiveTab] = useState<AdminTab>("draft");
 
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [settingUp, setSettingUp] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupMessage, setSetupMessage] = useState<string | null>(null);
+
   const [lotteryConfig, setLotteryConfig] = useState<{
     status: string;
     scheduled_at: string | null;
@@ -188,17 +197,19 @@ export default function AdminPage() {
       setLoadingSession(true);
       setPageError(null);
       try {
-        const [entrantsRes, sessionRes, metaRes, draftStateRes] = await Promise.all([
+        const [entrantsRes, sessionRes, metaRes, draftStateRes, adminRes] = await Promise.all([
           fetch(`/api/entrants?pool_id=${encodeURIComponent(poolId)}`),
           fetch(`/api/auth/me?pool_id=${encodeURIComponent(poolId)}`),
           fetch(`/api/tournament-meta?pool_id=${encodeURIComponent(poolId)}`),
           fetch(`/api/draft-state?pool_id=${encodeURIComponent(poolId)}`),
+          fetch(`/api/auth/me`),
         ]);
 
         const entrantsJson = await entrantsRes.json();
         const sessionJson = await sessionRes.json();
         const metaJson = await metaRes.json();
         const draftStateJson = await draftStateRes.json();
+        const adminJson = await adminRes.json();
 
         if (!entrantsRes.ok) throw new Error(entrantsJson?.error ?? "Failed to load entrants");
         if (!sessionRes.ok) throw new Error(sessionJson?.error ?? "Failed to load session");
@@ -208,6 +219,7 @@ export default function AdminPage() {
         if (!cancelled) {
           setEntrants((entrantsJson.entrants ?? []) as Entrant[]);
           setSessionEntrant((sessionJson.entrant ?? null) as Entrant | null);
+          setSessionIsAdmin(Boolean((adminJson?.entrant as Entrant | null)?.is_admin));
           const metaRows = (metaJson.rows ?? []) as TournamentMetaRow[];
           const draftState =
             metaRows.find((row) => row.tournament_slug === selectedTournament)?.draft_open ?? false;
@@ -218,6 +230,7 @@ export default function AdminPage() {
         if (!cancelled) {
           setEntrants([]);
           setSessionEntrant(null);
+          setSessionIsAdmin(false);
           setDraftOpen(false);
           setDraftState(null);
           setPageError(getErrorMessage(e, "Failed to load admin state"));
@@ -231,7 +244,7 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [poolId, selectedTournament]);
+  }, [poolId, selectedTournament, refreshNonce]);
 
   useEffect(() => {
     setPreviewRows([]);
@@ -244,6 +257,8 @@ export default function AdminPage() {
     setSelectedScoreTournamentSlug(selectedTournament);
     setDraftStateError(null);
     setDraftStateMessage(null);
+    setSetupError(null);
+    setSetupMessage(null);
   }, [selectedTournament]);
 
   async function updateDraftState(nextDraftOpen: boolean) {
@@ -309,6 +324,33 @@ export default function AdminPage() {
       setDraftStateError(getErrorMessage(e, "Failed to reset pool to pre-draft state"));
     } finally {
       setResettingPreDraft(false);
+    }
+  }
+
+  async function setupTournament() {
+    setSettingUp(true);
+    setSetupError(null);
+    setSetupMessage(null);
+    try {
+      const res = await fetch("/api/admin/tournament-setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pool_id: poolId,
+          tournament_slug: selectedTournament,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to set up tournament");
+      setSetupMessage(
+        `Set up ${json.entrants_copied} entrants (copied from ${json.source_pool_id}). ` +
+          "Next: run the lottery, sync odds + handicaps, and generate access codes.",
+      );
+      setRefreshNonce((n) => n + 1);
+    } catch (e: unknown) {
+      setSetupError(getErrorMessage(e, "Failed to set up tournament"));
+    } finally {
+      setSettingUp(false);
     }
   }
 
@@ -621,6 +663,41 @@ export default function AdminPage() {
             })}
           </div>
         </nav>
+      )}
+
+      {!loadingSession && !pageError && sessionIsAdmin && entrants.length === 0 && (
+        <section className="soft-card mt-3 rounded-2xl border border-accent/40 bg-accent/10 p-4 sm:p-5">
+          <h2 className="text-sm font-semibold">This pool isn&apos;t set up yet</h2>
+          <p className="mt-1 text-xs text-muted">
+            No entrants exist for{" "}
+            <span className="font-semibold text-text">
+              {TOURNAMENTS.find((t) => t.slug === selectedTournament)?.label ?? selectedTournament}
+            </span>{" "}
+            (<span className="font-mono">{poolId}</span>). Copy the roster from your most recent
+            pool to get started — draft positions are left empty for the lottery to assign.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void setupTournament()}
+              disabled={settingUp}
+              className={[
+                "rounded-lg px-4 py-2 text-sm font-semibold",
+                settingUp ? "bg-border text-muted" : "bg-accent text-black",
+              ].join(" ")}
+            >
+              {settingUp ? "Setting up..." : "Set Up This Tournament"}
+            </button>
+            {setupMessage && <span className="text-xs text-accent">{setupMessage}</span>}
+            {setupError && <span className="text-xs text-danger">{setupError}</span>}
+          </div>
+        </section>
+      )}
+
+      {setupMessage && entrants.length > 0 && (
+        <section className="mt-3 rounded-2xl border border-accent/40 bg-surface p-4 text-sm text-accent">
+          {setupMessage}
+        </section>
       )}
 
       {loadingSession && (
