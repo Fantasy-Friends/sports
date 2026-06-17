@@ -15,6 +15,7 @@ export type EntrantIdentity = {
   auto_draft_enabled: boolean | null;
   welcomed_at: string | null;
   person_key: string | null;
+  google_email: string | null;
 };
 
 type SessionRow = {
@@ -48,7 +49,7 @@ async function loadEntrantById(entrantId: string) {
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")
     .select(
-      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key",
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key, google_email",
     )
     .eq("entrant_id", entrantId)
     .maybeSingle<EntrantRow>();
@@ -61,9 +62,23 @@ async function loadEntrantByPersonKeyAndPool(personKey: string, poolId: string) 
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")
     .select(
-      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key",
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key, google_email",
     )
     .eq("person_key", personKey)
+    .eq("pool_id", poolId)
+    .maybeSingle<EntrantRow>();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function loadEntrantByEmailAndPool(email: string, poolId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("draft_entrants")
+    .select(
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key, google_email",
+    )
+    .eq("google_email", email.toLowerCase())
     .eq("pool_id", poolId)
     .maybeSingle<EntrantRow>();
 
@@ -133,12 +148,20 @@ export async function getAuthenticatedEntrant(poolId?: string) {
   }
 
   // If a specific pool was requested and it differs from the session's pool,
-  // use person_key to transparently resolve the same person's entrant row in
-  // the requested pool. This means one Google login works across all pools.
+  // transparently resolve the same person's entrant row in the requested pool
+  // so one Google login works across all pools. Prefer matching google_email
+  // (exact per-person, and the session's email is always the login email) and
+  // only fall back to person_key, which can drift when a pool is bootstrapped
+  // by copy or edited by hand.
   let entrant = sessionEntrant;
   if (poolId && session.pool_id !== poolId) {
-    if (!sessionEntrant.person_key) return null;
-    const crossPoolEntrant = await loadEntrantByPersonKeyAndPool(sessionEntrant.person_key, poolId);
+    let crossPoolEntrant: EntrantRow | null = null;
+    if (sessionEntrant.google_email) {
+      crossPoolEntrant = await loadEntrantByEmailAndPool(sessionEntrant.google_email, poolId);
+    }
+    if (!crossPoolEntrant && sessionEntrant.person_key) {
+      crossPoolEntrant = await loadEntrantByPersonKeyAndPool(sessionEntrant.person_key, poolId);
+    }
     if (!crossPoolEntrant) return null;
     entrant = crossPoolEntrant;
   }
@@ -158,7 +181,7 @@ export async function getEntrantByEmail(email: string) {
   const { data, error } = await supabaseAdmin
     .from("draft_entrants")
     .select(
-      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key",
+      "entrant_id, pool_id, entrant_name, entrant_slug, draft_position, is_admin, auto_draft_enabled, welcomed_at, person_key, google_email",
     )
     .eq("google_email", email.toLowerCase())
     .limit(1)
