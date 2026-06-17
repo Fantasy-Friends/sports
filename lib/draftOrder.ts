@@ -256,6 +256,41 @@ async function getHighestAvailableGolfer(poolId: string) {
   return available?.golfer as string | undefined;
 }
 
+// Auto-draft selection for a specific entrant: walk their personal queue in
+// order and take the first golfer that hasn't been drafted yet. If their queue
+// is empty or every queued golfer is already gone, fall back to the highest-
+// ranked available golfer so the draft never stalls.
+async function getQueuedOrHighestGolfer(poolId: string, entrantId: string) {
+  try {
+    const [{ data: queue, error: queueError }, { data: picks, error: picksError }] =
+      await Promise.all([
+        supabaseAdmin
+          .from("draft_queue")
+          .select("golfer, sort_order")
+          .eq("pool_id", poolId)
+          .eq("entrant_id", entrantId)
+          .order("sort_order", { ascending: true }),
+        supabaseAdmin.from("draft_picks").select("golfer").eq("pool_id", poolId),
+      ]);
+
+    if (queueError) throw queueError;
+    if (picksError) throw picksError;
+
+    const picked = new Set((picks ?? []).map((row) => row.golfer as string));
+    const queued = (queue ?? []).find((row) => !picked.has(row.golfer as string));
+    if (queued) return queued.golfer as string;
+  } catch (err) {
+    // Never let a queue lookup break the draft. If the table isn't there yet
+    // (migration not applied) or the read fails, fall back to rank order.
+    console.warn(
+      "draft_queue lookup failed; using rank order:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  return getHighestAvailableGolfer(poolId);
+}
+
 async function countEntrantPicks(poolId: string, entrantId: string) {
   const { count, error } = await supabaseAdmin
     .from("draft_picks")
@@ -474,7 +509,7 @@ export async function advanceDraftState(poolId: string): Promise<DraftStateSumma
     if (!currentEntrant) break;
 
     if (currentEntrant.auto_draft_enabled) {
-      const golfer = await getHighestAvailableGolfer(poolId);
+      const golfer = await getQueuedOrHighestGolfer(poolId, currentEntrant.entrant_id);
       if (golfer) {
         await insertAutoPick(poolId, currentEntrant, golfer);
       }

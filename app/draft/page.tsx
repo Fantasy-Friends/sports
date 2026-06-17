@@ -128,6 +128,9 @@ function DraftPageContent() {
   const [picksError, setPicksError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  const [queue, setQueue] = useState<string[]>([]);
+  const [queueSaving, setQueueSaving] = useState(false);
+
   const poolId = `${basePoolId}-${selectedTournament}`;
   const entrantNames = useMemo(() => entrants.map((entrant) => entrant.entrant_name), [entrants]);
 
@@ -273,6 +276,31 @@ function DraftPageContent() {
     };
   }, [poolId, entrantNames, refreshTick]);
 
+  const sessionEntrantId = sessionEntrant?.entrant_id;
+  useEffect(() => {
+    if (!sessionEntrantId) {
+      setQueue([]);
+      return;
+    }
+    let cancelled = false;
+    async function loadQueue() {
+      try {
+        const res = await fetch(`/api/draft-queue?pool_id=${encodeURIComponent(poolId)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error ?? "Failed to load queue");
+        if (!cancelled) setQueue((json.golfers ?? []) as string[]);
+      } catch {
+        if (!cancelled) setQueue([]);
+      }
+    }
+    void loadQueue();
+    return () => {
+      cancelled = true;
+    };
+  }, [poolId, sessionEntrantId]);
+
   const pickedGolferIds = useMemo(() => {
     const picked = new Set<string>();
     for (const picks of Object.values(picksByEntrant)) {
@@ -289,6 +317,17 @@ function DraftPageContent() {
     sessionEntrant &&
       draftState?.current_entrant_id &&
       sessionEntrant.entrant_id === draftState.current_entrant_id
+  );
+
+  // Drafted golfers drop off the queue automatically: editing always works from
+  // (and saves) the still-available list, so the stored queue stays clean.
+  const visibleQueue = useMemo(
+    () => queue.filter((golfer) => !pickedGolferIds.has(golfer)),
+    [queue, pickedGolferIds]
+  );
+  const queuedSet = useMemo(() => new Set(visibleQueue), [visibleQueue]);
+  const canDraftNow = Boolean(
+    sessionEntrant && draftOpen && isOnClock && !activeIsFull && !savingPicks && !draftState?.is_complete
   );
 
   const visibleGolfers = useMemo(() => {
@@ -389,6 +428,44 @@ function DraftPageContent() {
     } finally {
       setSavingPicks(false);
     }
+  }
+
+  async function saveQueue(next: string[]) {
+    if (!sessionEntrant) return;
+    setQueue(next);
+    setQueueSaving(true);
+    setPicksError(null);
+    try {
+      const res = await fetch("/api/draft-queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pool_id: poolId, golfers: next }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to save queue");
+      if (Array.isArray(json.golfers)) setQueue(json.golfers as string[]);
+    } catch (e: unknown) {
+      setPicksError(getErrorMessage(e, "Failed to save queue"));
+    } finally {
+      setQueueSaving(false);
+    }
+  }
+
+  function toggleQueue(golfer: string) {
+    if (!sessionEntrant || pickedGolferIds.has(golfer)) return;
+    void saveQueue(
+      queuedSet.has(golfer)
+        ? visibleQueue.filter((g) => g !== golfer)
+        : [...visibleQueue, golfer]
+    );
+  }
+
+  function moveQueue(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= visibleQueue.length) return;
+    const next = [...visibleQueue];
+    [next[index], next[target]] = [next[target], next[index]];
+    void saveQueue(next);
   }
 
   async function clearDraftBoard() {
@@ -544,6 +621,92 @@ function DraftPageContent() {
         </section>
       )}
 
+      {sessionEntrant && (
+        <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[11px] uppercase tracking-[0.28em] text-muted">Your queue</div>
+            <div className="text-[11px] text-muted">
+              {queueSaving
+                ? "Saving…"
+                : sessionEntrant.auto_draft_enabled
+                  ? "Drives your auto-draft"
+                  : "Used when auto-draft is on"}
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            Auto-draft takes the top available golfer here, then falls back to best rank. Private to you.
+          </p>
+
+          {canDraftNow && visibleQueue.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void addPick(visibleQueue[0])}
+              disabled={savingPicks}
+              className="mt-3 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50"
+            >
+              Draft top of queue · {visibleQueue[0]}
+            </button>
+          )}
+
+          {visibleQueue.length === 0 ? (
+            <div className="mt-3 rounded-xl border border-border/60 bg-bg/40 px-3 py-3 text-xs text-muted">
+              Empty — tap “+ Queue” on any golfer below to build your order.
+            </div>
+          ) : (
+            <ol className="mt-3 space-y-2">
+              {visibleQueue.map((golfer, idx) => (
+                <li
+                  key={golfer}
+                  className="flex items-center gap-2 rounded-xl border border-border/60 bg-bg/60 px-3 py-2"
+                >
+                  <span className="w-5 shrink-0 text-xs font-semibold text-muted">{idx + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{golfer}</span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => moveQueue(idx, -1)}
+                      disabled={idx === 0 || queueSaving}
+                      aria-label={`Move ${golfer} up`}
+                      className="rounded-md border border-border/60 px-1.5 py-0.5 text-xs disabled:opacity-40"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveQueue(idx, 1)}
+                      disabled={idx === visibleQueue.length - 1 || queueSaving}
+                      aria-label={`Move ${golfer} down`}
+                      className="rounded-md border border-border/60 px-1.5 py-0.5 text-xs disabled:opacity-40"
+                    >
+                      ↓
+                    </button>
+                    {canDraftNow && (
+                      <button
+                        type="button"
+                        onClick={() => void addPick(golfer)}
+                        disabled={savingPicks}
+                        className="rounded-md bg-accent px-2 py-0.5 text-xs font-semibold text-black disabled:opacity-50"
+                      >
+                        Draft
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => toggleQueue(golfer)}
+                      disabled={queueSaving}
+                      aria-label={`Remove ${golfer} from queue`}
+                      className="rounded-md border border-border/60 px-1.5 py-0.5 text-xs text-muted disabled:opacity-40"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
+
       <section className="soft-card rounded-2xl border border-border bg-surface p-3 sm:p-4">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1">
@@ -616,18 +779,40 @@ function DraftPageContent() {
                       )}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void addPick(golfer.golfer)}
-                    disabled={!canPick}
-                    aria-label={`Draft ${golfer.golfer}`}
-                    className={[
-                      "shrink-0 rounded-lg px-4 py-2 text-sm font-semibold",
-                      canPick ? "bg-accent text-black" : "bg-border text-muted",
-                    ].join(" ")}
-                  >
-                    {buttonLabel}
-                  </button>
+                  <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void addPick(golfer.golfer)}
+                      disabled={!canPick}
+                      aria-label={`Draft ${golfer.golfer}`}
+                      className={[
+                        "rounded-lg px-4 py-2 text-sm font-semibold",
+                        canPick ? "bg-accent text-black" : "bg-border text-muted",
+                      ].join(" ")}
+                    >
+                      {buttonLabel}
+                    </button>
+                    {sessionEntrant && (
+                      <button
+                        type="button"
+                        onClick={() => toggleQueue(golfer.golfer)}
+                        disabled={queueSaving}
+                        aria-label={
+                          queuedSet.has(golfer.golfer)
+                            ? `Remove ${golfer.golfer} from queue`
+                            : `Add ${golfer.golfer} to queue`
+                        }
+                        className={[
+                          "rounded-lg px-4 py-1.5 text-xs font-semibold disabled:opacity-50",
+                          queuedSet.has(golfer.golfer)
+                            ? "bg-accent/15 text-accent"
+                            : "border border-border bg-bg text-text",
+                        ].join(" ")}
+                      >
+                        {queuedSet.has(golfer.golfer) ? "Queued" : "+ Queue"}
+                      </button>
+                    )}
+                  </div>
                 </li>
               );
             })}
@@ -675,28 +860,45 @@ function DraftPageContent() {
                           <span className="text-xs text-accent">Available</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => void addPick(golfer.golfer)}
-                          disabled={!canPick}
-                          className={[
-                            "rounded-lg px-3 py-1.5 text-xs font-semibold",
-                            canPick ? "bg-accent text-black" : "bg-border text-muted",
-                          ].join(" ")}
-                        >
-                          {!sessionEntrant
-                            ? "Sign in"
-                            : picked
-                              ? "Locked"
-                              : !draftOpen
+                      <td className="px-3 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          {sessionEntrant && (
+                            <button
+                              type="button"
+                              onClick={() => toggleQueue(golfer.golfer)}
+                              disabled={queueSaving}
+                              className={[
+                                "rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50",
+                                queuedSet.has(golfer.golfer)
+                                  ? "bg-accent/15 text-accent"
+                                  : "border border-border bg-bg text-text",
+                              ].join(" ")}
+                            >
+                              {queuedSet.has(golfer.golfer) ? "Queued" : "+ Queue"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void addPick(golfer.golfer)}
+                            disabled={!canPick}
+                            className={[
+                              "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                              canPick ? "bg-accent text-black" : "bg-border text-muted",
+                            ].join(" ")}
+                          >
+                            {!sessionEntrant
+                              ? "Sign in"
+                              : picked
                                 ? "Locked"
-                                : draftState?.is_complete
-                                  ? "Done"
-                                  : isOnClock
-                                    ? "Draft"
-                                    : "Wait"}
-                        </button>
+                                : !draftOpen
+                                  ? "Locked"
+                                  : draftState?.is_complete
+                                    ? "Done"
+                                    : isOnClock
+                                      ? "Draft"
+                                      : "Wait"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
