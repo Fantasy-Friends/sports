@@ -108,6 +108,15 @@ export function isTournamentSlug(value: string): value is TournamentSlug {
   return TOURNAMENTS.some((option) => option.slug === value);
 }
 
+// The "current" major for forward-looking, season-following views (e.g. the
+// public lottery page): the first tournament on the calendar whose window
+// hasn't ended yet. Once every major has finished, falls back to the last one.
+// TOURNAMENTS is maintained in chronological order, so a simple find works.
+export function getCurrentTournamentSlug(now = new Date()): TournamentSlug {
+  const upcoming = TOURNAMENTS.find((t) => !isTournamentEnded(t.slug, now));
+  return (upcoming ?? TOURNAMENTS[TOURNAMENTS.length - 1]).slug;
+}
+
 export function buildTournamentPoolId(basePoolId: string, tournament: TournamentSlug) {
   return `${basePoolId}-${tournament}`;
 }

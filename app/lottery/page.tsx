@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { tintFor, initialsFor } from "@/lib/avatarTint";
+import { getCurrentTournamentSlug } from "@/lib/tournaments";
 
 function MiniLotteryBall({ n, size = 44 }: { n: number; size?: number }) {
   const gId = `mlb-g${n}`;
@@ -163,7 +164,12 @@ function getCatchUpCount(startedAt: string): number {
 
 export default function LotteryPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
-  const poolId = `${basePoolId}-pga-championship`;
+  // Auto-follow the calendar: show whichever major's lottery is current rather
+  // than a hardcoded tournament. Computed once per mount for a stable poolId.
+  const poolId = useMemo(
+    () => `${basePoolId}-${getCurrentTournamentSlug()}`,
+    [basePoolId],
+  );
 
   const [config, setConfig] = useState<LotteryConfig | null>(null);
   const [loaded, setLoaded] = useState(false);
