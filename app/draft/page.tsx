@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage } from "@/lib/error";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
+import { getCurrentTournamentSlug } from "@/lib/tournaments";
 import AppShell from "@/components/AppShell";
 
 type Golfer = {
@@ -104,7 +105,9 @@ function formatCountdown(totalSeconds: number | null) {
 function DraftPageContent() {
   const searchParams = useSearchParams();
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
-  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("pga-championship");
+  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>(
+    getCurrentTournamentSlug()
+  );
   const [query, setQuery] = useState("");
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftState, setDraftState] = useState<DraftStateRow | null>(null);
