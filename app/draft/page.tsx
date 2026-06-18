@@ -312,6 +312,12 @@ function DraftPageContent() {
     return picked;
   }, [picksByEntrant]);
 
+  const golferByName = useMemo(() => {
+    const map = new Map<string, Golfer>();
+    for (const g of golfers) map.set(g.golfer, g);
+    return map;
+  }, [golfers]);
+
   const activeEntrantName = sessionEntrant?.entrant_name ?? "";
   const activePicks = activeEntrantName ? picksByEntrant[activeEntrantName] ?? [] : [];
   const activeIsFull = activePicks.length >= MAX_PICKS_PER_ENTRANT;
@@ -657,13 +663,23 @@ function DraftPageContent() {
             </div>
           ) : (
             <ol className="mt-3 space-y-2">
-              {visibleQueue.map((golfer, idx) => (
+              {visibleQueue.map((golfer, idx) => {
+                const meta = golferByName.get(golfer);
+                return (
                 <li
                   key={golfer}
                   className="flex items-center gap-2 rounded-xl border border-border/60 bg-bg/60 px-3 py-2"
                 >
                   <span className="w-5 shrink-0 text-xs font-semibold text-muted">{idx + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{golfer}</span>
+                  <span className="inline-flex min-w-[1.75rem] shrink-0 justify-center rounded-md bg-surface/60 px-1.5 py-0.5 text-xs font-semibold text-muted">
+                    {meta ? `#${meta.rank}` : "—"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{golfer}</div>
+                    <div className="text-[11px] text-muted">
+                      {meta ? `Hdcp ${meta.handicap.toFixed(1)}` : "—"}
+                    </div>
+                  </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
@@ -704,7 +720,8 @@ function DraftPageContent() {
                     </button>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ol>
           )}
         </section>
