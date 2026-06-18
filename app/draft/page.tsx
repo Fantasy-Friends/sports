@@ -727,6 +727,34 @@ function DraftPageContent() {
         </section>
       )}
 
+      <section className="soft-card rounded-2xl border border-border bg-surface p-4">
+        <h2 className="text-sm font-semibold">Draft Summary</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {draftSummaryNames.map((entrantName) => {
+            const picks = picksByEntrant[entrantName] ?? [];
+            return (
+              <div key={entrantName} className="rounded-xl border border-border/70 bg-bg/50 p-3">
+                <div className="text-sm font-semibold">{entrantName}</div>
+                <div className="mt-1 text-xs text-muted">
+                  {picks.length} / {MAX_PICKS_PER_ENTRANT} picks
+                </div>
+                {entrants.find((entrant) => entrant.entrant_name === entrantName)?.auto_draft_enabled && (
+                  <div className="mt-1 text-[11px] uppercase tracking-wide text-accent">Auto Draft</div>
+                )}
+                <div className="mt-2 space-y-1 text-xs">
+                  {picks.length === 0 && <div className="text-muted">No picks yet.</div>}
+                  {picks.map((golfer, idx) => (
+                    <div key={`${entrantName}-${golfer}-${idx}`}>
+                      {idx + 1}. {golfer}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="soft-card rounded-2xl border border-border bg-surface p-3 sm:p-4">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1">
@@ -926,34 +954,6 @@ function DraftPageContent() {
               </tbody>
             </table>
           </div>
-      </section>
-
-      <section className="soft-card rounded-2xl border border-border bg-surface p-4">
-        <h2 className="text-sm font-semibold">Draft Summary</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {draftSummaryNames.map((entrantName) => {
-            const picks = picksByEntrant[entrantName] ?? [];
-            return (
-              <div key={entrantName} className="rounded-xl border border-border/70 bg-bg/50 p-3">
-                <div className="text-sm font-semibold">{entrantName}</div>
-                <div className="mt-1 text-xs text-muted">
-                  {picks.length} / {MAX_PICKS_PER_ENTRANT} picks
-                </div>
-                {entrants.find((entrant) => entrant.entrant_name === entrantName)?.auto_draft_enabled && (
-                  <div className="mt-1 text-[11px] uppercase tracking-wide text-accent">Auto Draft</div>
-                )}
-                <div className="mt-2 space-y-1 text-xs">
-                  {picks.length === 0 && <div className="text-muted">No picks yet.</div>}
-                  {picks.map((golfer, idx) => (
-                    <div key={`${entrantName}-${golfer}-${idx}`}>
-                      {idx + 1}. {golfer}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </section>
 
       {sessionEntrant?.is_admin && (
