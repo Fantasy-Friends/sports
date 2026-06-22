@@ -55,7 +55,24 @@ export default function PlayerLeaderboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const poolId = useMemo(() => `${basePoolId}-${selectedTournament}`, [basePoolId, selectedTournament]);
-  const selectedTournamentMeta = availableTournaments.find(
+  // The dropdown always lists every major. The per-tournament meta fetch only
+  // returns a row for the currently-selected pool, so we drive the options off
+  // the static TOURNAMENTS list and merge in any meta (e.g. round_par) we have.
+  const tournamentOptions = useMemo<TournamentMetaOption[]>(
+    () =>
+      TOURNAMENTS.map((item) => {
+        const meta = availableTournaments.find((m) => m.tournament_slug === item.slug);
+        return {
+          tournament_slug: item.slug,
+          label: item.label,
+          round_par: meta?.round_par,
+          draft_open: meta?.draft_open,
+          draft_active_now: meta?.draft_active_now,
+        };
+      }),
+    [availableTournaments]
+  );
+  const selectedTournamentMeta = tournamentOptions.find(
     (item) => item.tournament_slug === selectedTournament
   );
   const pollingActive = isTournamentPollingActive(selectedTournament as TournamentSlug);
@@ -128,9 +145,6 @@ export default function PlayerLeaderboardPage() {
         const rows = (json.rows ?? []) as TournamentMetaOption[];
         if (!cancelled && rows.length > 0) {
           setAvailableTournaments(rows);
-          if (!rows.some((row) => row.tournament_slug === selectedTournament)) {
-            setSelectedTournament(rows[0].tournament_slug);
-          }
         }
       } catch {
         if (!cancelled) {
@@ -194,7 +208,7 @@ export default function PlayerLeaderboardPage() {
           aria-label="Tournament"
           className="glass-input rounded-xl px-3 py-2 text-sm"
         >
-          {availableTournaments.map((tournament) => (
+          {tournamentOptions.map((tournament) => (
             <option key={tournament.tournament_slug} value={tournament.tournament_slug}>
               {tournament.label}
             </option>
