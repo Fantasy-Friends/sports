@@ -64,7 +64,7 @@ export const ACTIVITY_COLORS: Record<ActivityIntensity, string> = {
   vigorous: "#22c55e",
 };
 
-export type EntryKind = "drink" | "caffeine" | "water" | "substance" | "activity" | "food" | "sleep" | "vomit";
+export type EntryKind = "drink" | "caffeine" | "water" | "substance" | "activity" | "food" | "sleep" | "vomit" | "fish";
 
 export type Entry = {
   entry_id: string;
@@ -568,6 +568,64 @@ export const VOMIT_PRESETS: ReadonlyArray<{ name: string; severity: 1 | 2 | 3 }>
 
 const VOMIT_EXPEL_FRACTION: Record<1 | 2 | 3, number> = { 1: 0.30, 2: 0.50, 3: 0.70 };
 const ABSORPTION_WINDOW_MIN = 60;
+
+// ─── Fish catches (sober-friendly tracking) ─────────────────────────────────
+// One entry per catch. Species presets tuned to northern Minnesota lakes.
+// No effect on BAC math — this is a counter with bragging rights.
+
+export type FishPayload = {
+  preset?: string;          // species name
+  species: string;
+  length_in?: number;       // optional; logged via a future detail form
+  weight_lbs?: number;
+  released?: boolean;
+  notes?: string;
+};
+
+export const FISH_PRESETS: ReadonlyArray<{ name: string; species: string }> = [
+  { name: "Walleye",            species: "walleye" },
+  { name: "Northern Pike",      species: "northern-pike" },
+  { name: "Muskie",             species: "muskie" },
+  { name: "Smallmouth Bass",    species: "smallmouth-bass" },
+  { name: "Largemouth Bass",    species: "largemouth-bass" },
+  { name: "Yellow Perch",       species: "yellow-perch" },
+  { name: "Crappie",            species: "crappie" },
+  { name: "Bluegill / Sunfish", species: "bluegill" },
+  { name: "Lake Trout",         species: "lake-trout" },
+  { name: "Whitefish",          species: "whitefish" },
+  { name: "Rock Bass",          species: "rock-bass" },
+  { name: "Bullhead",           species: "bullhead" },
+  { name: "Channel Catfish",    species: "channel-catfish" },
+  { name: "Eelpout (Burbot)",   species: "burbot" },
+  { name: "Sturgeon",           species: "sturgeon" },
+  { name: "Tullibee (Cisco)",   species: "cisco" },
+];
+
+export type FishTally = {
+  total: number;
+  by_species: Array<{ species: string; label: string; count: number }>;
+};
+
+export function fishTally(entries: Entry[]): FishTally {
+  const counts = new Map<string, { label: string; count: number }>();
+  let total = 0;
+  for (const e of entries) {
+    if (e.kind !== "fish") continue;
+    const p = e.payload as Partial<FishPayload>;
+    const species = typeof p?.species === "string" ? p.species : "unknown";
+    const label = typeof p?.preset === "string" ? p.preset : species;
+    const cur = counts.get(species) ?? { label, count: 0 };
+    cur.count += 1;
+    counts.set(species, cur);
+    total += 1;
+  }
+  return {
+    total,
+    by_species: [...counts.entries()]
+      .map(([species, v]) => ({ species, label: v.label, count: v.count }))
+      .sort((a, b) => b.count - a.count),
+  };
+}
 
 // ─── Hangover Forecast ─────────────────────────────────────────────────────
 //
