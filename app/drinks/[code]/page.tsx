@@ -17,14 +17,17 @@ import {
   SUBSTANCE_PRESETS,
   WATER_PRESETS,
   activeActivities,
+  LEADERBOARD_METRICS,
   activeSubstances,
   bacSeries,
+  buildLeaderboardRow,
   caffeineMgRemaining,
   caffeineSeries,
   calcBAC,
   fishTally,
   hangoverForecast,
   riskLevel,
+  sortLeaderboard,
   substanceFraction,
   waterOzRecent,
   type ActivityPayload,
@@ -33,6 +36,8 @@ import {
   type FishPayload,
   type FoodPayload,
   type HangoverForecast,
+  type LeaderboardMetric,
+  type LeaderboardRow,
   type MemberProfile,
   type SeriesPoint,
   type Sex,
@@ -85,6 +90,7 @@ const TABS = [
   { id: "stadium", label: "Stadium" },
   { id: "log", label: "Log" },
   { id: "timeline", label: "Timeline" },
+  { id: "leaderboard", label: "Leaderboard" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -464,7 +470,168 @@ function SessionView({
           entriesByActor={entriesByActor}
         />
       )}
+
+      {tab === "leaderboard" && (
+        <LeaderboardTab
+          state={state}
+          now={now}
+          profileById={profileById}
+          entriesByActor={entriesByActor}
+        />
+      )}
     </>
+  );
+}
+
+function LeaderboardTab({
+  state, now, profileById, entriesByActor,
+}: {
+  state: SessionState;
+  now: Date;
+  profileById: Map<string, MemberProfile>;
+  entriesByActor: Map<string, Entry[]>;
+}) {
+  const [scope, setScope] = useState<"session" | "all-time">("session");
+  const [metric, setMetric] = useState<LeaderboardMetric>("current_bac");
+
+  // Session rows built from live client data.
+  const sessionRows: LeaderboardRow[] = useMemo(() => {
+    const rows: LeaderboardRow[] = [];
+    for (const m of state.members) {
+      if (m.left_at) continue;
+      const profile = profileById.get(m.entrant_id);
+      if (!profile) continue;
+      rows.push(buildLeaderboardRow(m.entrant_id, m.display_name, "member", profile, entriesByActor.get(m.entrant_id) ?? [], now));
+    }
+    for (const g of state.guests) {
+      if (g.removed_at) continue;
+      const profile = profileById.get(g.guest_id);
+      if (!profile) continue;
+      rows.push(buildLeaderboardRow(g.guest_id, g.display_name, "guest", profile, entriesByActor.get(g.guest_id) ?? [], now));
+    }
+    return rows;
+  }, [state.members, state.guests, profileById, entriesByActor, now]);
+
+  // All-time rows fetched from the aggregation endpoint.
+  const [allTimeRows, setAllTimeRows] = useState<LeaderboardRow[] | null>(null);
+  const [allTimeError, setAllTimeError] = useState<string | null>(null);
+  const [allTimeLoading, setAllTimeLoading] = useState(false);
+
+  useEffect(() => {
+    if (scope !== "all-time" || allTimeRows !== null) return;
+    let cancelled = false;
+    setAllTimeLoading(true);
+    setAllTimeError(null);
+    fetch("/api/drinks/leaderboard", { cache: "no-store" })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error ?? "Failed to load all-time leaderboard");
+        if (!cancelled) setAllTimeRows((json.rows ?? []) as LeaderboardRow[]);
+      })
+      .catch((e) => { if (!cancelled) setAllTimeError(e instanceof Error ? e.message : "Failed to load"); })
+      .finally(() => { if (!cancelled) setAllTimeLoading(false); });
+    return () => { cancelled = true; };
+  }, [scope, allTimeRows]);
+
+  // All-time has no meaningful live BAC — fall back to peak_bac for that metric.
+  const effectiveMetric: LeaderboardMetric =
+    scope === "all-time" && metric === "current_bac" ? "peak_bac" : metric;
+
+  const rawRows = scope === "session" ? sessionRows : allTimeRows ?? [];
+  const rows = sortLeaderboard(rawRows, effectiveMetric);
+
+  const fmt = (r: LeaderboardRow) => {
+    switch (effectiveMetric) {
+      case "current_bac": return r.current_bac.toFixed(3);
+      case "peak_bac": return r.peak_bac.toFixed(3);
+      case "drinks": return String(r.drinks);
+      case "standard_drinks": return r.standard_drinks.toFixed(1);
+      case "caffeine": return `${Math.round(r.caffeine_mg)} mg`;
+      case "water": return `${Math.round(r.water_oz)} oz`;
+      case "fish": return `${r.fish} 🎣`;
+    }
+  };
+
+  const availableMetrics = scope === "all-time"
+    ? LEADERBOARD_METRICS.filter((m) => m.id !== "current_bac")
+    : LEADERBOARD_METRICS;
+
+  return (
+    <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/35 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold text-info">Leaderboard</h3>
+        <div className="inline-flex rounded-full border border-border/40 bg-surface/60 p-0.5 text-xs font-semibold">
+          {(["session", "all-time"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setScope(s)}
+              className={`rounded-full px-3 py-1 transition-colors ${
+                scope === s ? "bg-accent text-white" : "text-muted hover:text-text"
+              }`}
+            >
+              {s === "session" ? "This session" : "All time"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {availableMetrics.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => setMetric(m.id)}
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+              effectiveMetric === m.id
+                ? "bg-info/20 text-info"
+                : "border border-border/40 text-muted hover:text-text"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {scope === "all-time" && allTimeLoading && (
+        <p className="mt-4 text-sm text-muted">Loading all-time stats&hellip;</p>
+      )}
+      {scope === "all-time" && allTimeError && (
+        <p className="mt-4 text-sm text-danger">{allTimeError}</p>
+      )}
+
+      {rows.length === 0 && !allTimeLoading ? (
+        <p className="mt-4 text-sm text-muted">
+          {scope === "session" ? "No members with a profile yet." : "No history recorded yet."}
+        </p>
+      ) : (
+        <ol className="mt-4 space-y-1.5">
+          {rows.map((r, i) => (
+            <li
+              key={r.id}
+              className="grid grid-cols-[2rem_1fr_auto] items-center gap-3 rounded-xl border border-border/30 bg-surface/50 px-3 py-2.5"
+            >
+              <span className={`text-center text-sm font-bold ${i === 0 ? "text-accent" : "text-muted"}`}>
+                {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-text">{r.name}</span>
+                {r.kind === "guest" && (
+                  <span className="text-[10px] uppercase tracking-wider text-warning">Guest</span>
+                )}
+              </span>
+              <span className="font-mono text-base font-semibold text-text">{fmt(r)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <p className="mt-4 text-[11px] text-muted">
+        {scope === "session"
+          ? "Live from this session. Current BAC updates every 15s."
+          : "Aggregated across every session you've been in. Peak BAC + lifetime totals; no live BAC."}
+      </p>
+    </section>
   );
 }
 

@@ -674,7 +674,7 @@ function bucketForScore(s: number): { bucket: HangoverForecast["bucket"]; color:
   return       { bucket: "brutal",  color: "#ef4444" };
 }
 
-function peakBacOf(profile: MemberProfile, entries: Entry[], now: Date): number {
+export function peakBacOf(profile: MemberProfile, entries: Entry[], now: Date): number {
   // Sample every 5 min from the first drink to `now` (peak can't lie outside).
   let earliestDrink = Number.POSITIVE_INFINITY;
   for (const e of entries) {
@@ -950,3 +950,89 @@ export function earliestEntryMs(entries: Entry[]): number | null {
   }
   return best;
 }
+
+// ─── Leaderboard ────────────────────────────────────────────────────────────
+// Per-actor rollup for the session leaderboard. `all-time` uses the same shape,
+// aggregated server-side across sessions (peak BAC and totals; no live BAC).
+
+export type LeaderboardMetric =
+  | "current_bac"
+  | "peak_bac"
+  | "drinks"
+  | "standard_drinks"
+  | "caffeine"
+  | "water"
+  | "fish";
+
+export type LeaderboardRow = {
+  id: string;
+  name: string;
+  kind: "member" | "guest";
+  current_bac: number;
+  peak_bac: number;
+  drinks: number;
+  standard_drinks: number; // total ethanol grams / 14
+  caffeine_mg: number;
+  water_oz: number;
+  fish: number;
+};
+
+export function totalEthanolGrams(entries: Entry[]): number {
+  let g = 0;
+  for (const e of entries) {
+    if (e.kind !== "drink") continue;
+    const p = e.payload as DrinkPayload;
+    if (!p || typeof p.oz !== "number" || typeof p.abv !== "number") continue;
+    const pct = typeof p.pct === "number" ? p.pct : 1;
+    const grams = p.oz * 29.5735 * p.abv * pct * 0.789;
+    if (grams > 0) g += grams;
+  }
+  return g;
+}
+
+export function buildLeaderboardRow(
+  id: string,
+  name: string,
+  kind: "member" | "guest",
+  profile: MemberProfile,
+  entries: Entry[],
+  now: Date,
+): LeaderboardRow {
+  const drinks = entries.filter((e) => e.kind === "drink").length;
+  return {
+    id,
+    name,
+    kind,
+    current_bac: calcBAC(profile, entries, now),
+    peak_bac: peakBacOf(profile, entries, now),
+    drinks,
+    standard_drinks: totalEthanolGrams(entries) / 14,
+    caffeine_mg: caffeineMgRemaining(entries, now),
+    water_oz: waterOzRecent(entries, now),
+    fish: fishTally(entries).total,
+  };
+}
+
+export function sortLeaderboard(rows: LeaderboardRow[], metric: LeaderboardMetric): LeaderboardRow[] {
+  const key: Record<LeaderboardMetric, (r: LeaderboardRow) => number> = {
+    current_bac: (r) => r.current_bac,
+    peak_bac: (r) => r.peak_bac,
+    drinks: (r) => r.drinks,
+    standard_drinks: (r) => r.standard_drinks,
+    caffeine: (r) => r.caffeine_mg,
+    water: (r) => r.water_oz,
+    fish: (r) => r.fish,
+  };
+  const f = key[metric];
+  return [...rows].sort((a, b) => f(b) - f(a) || a.name.localeCompare(b.name));
+}
+
+export const LEADERBOARD_METRICS: ReadonlyArray<{ id: LeaderboardMetric; label: string }> = [
+  { id: "current_bac", label: "Current BAC" },
+  { id: "peak_bac", label: "Peak BAC" },
+  { id: "drinks", label: "Drinks" },
+  { id: "standard_drinks", label: "Std drinks" },
+  { id: "caffeine", label: "Caffeine" },
+  { id: "water", label: "Water" },
+  { id: "fish", label: "Fish" },
+];
