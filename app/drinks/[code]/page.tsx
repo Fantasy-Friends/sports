@@ -9,6 +9,7 @@ import {
   ACTIVITY_PRESETS,
   ALCOHOL_PRESETS,
   CAFFEINE_PRESETS,
+  FISH_PRESETS,
   FOOD_PRESETS,
   VOMIT_PRESETS,
   HYDRATION_GOAL_OZ,
@@ -21,6 +22,7 @@ import {
   caffeineMgRemaining,
   caffeineSeries,
   calcBAC,
+  fishTally,
   hangoverForecast,
   riskLevel,
   substanceFraction,
@@ -28,6 +30,7 @@ import {
   type ActivityPayload,
   type Entry,
   type EntryKind,
+  type FishPayload,
   type FoodPayload,
   type HangoverForecast,
   type MemberProfile,
@@ -676,6 +679,7 @@ function Stadium({
         const ageYears = state.age_by_entrant[a.id] ?? null;
         const hangover = hangoverForecast(profile, entries, now, { age_years: ageYears });
         const workouts = activeActivities(entries, now);
+        const fish = fishTally(entries);
         const risk = riskLevel(bac, drugs);
         const drinkCount = entries.filter((e) => e.kind === "drink").length;
         const isMe = a.isMe;
@@ -721,6 +725,26 @@ function Stadium({
 
             <HangoverPill forecast={hangover} />
 
+
+            {fish.total > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1">
+                <span
+                  className="rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                  style={{ backgroundColor: "#38bdf824", color: "#38bdf8" }}
+                >
+                  🎣 {fish.total} fish
+                </span>
+                {fish.by_species.map((s) => (
+                  <span
+                    key={s.species}
+                    className="rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ backgroundColor: "#38bdf816", color: "#7dd3fc" }}
+                  >
+                    {s.label} ×{s.count}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {(drugs.length > 0 || workouts.length > 0) && (
               <div className="mt-3 flex flex-wrap gap-1">
@@ -812,6 +836,7 @@ function kindColor(kind: EntryKind): string {
     : kind === "food" ? "#facc15"
     : kind === "sleep" ? "#60a5fa"
     : kind === "vomit" ? "#84cc16"
+    : kind === "fish" ? "#38bdf8"
     : "#a855f7";
 }
 
@@ -1207,6 +1232,22 @@ function LogTab({
         />
       </PresetPanel>
 
+      <PresetPanel
+        id="fish"
+        title="Fish caught"
+        subtitle="One tap per catch. Northern Minnesota species. Sober-friendly bragging rights."
+        span2
+      >
+        <PresetGrid
+          presets={FISH_PRESETS.map((p) => ({
+            label: p.name,
+            payload: { preset: p.name, species: p.species } as FishPayload as unknown as Record<string, unknown>,
+          }))}
+          disabled={busyKind !== null}
+          onPick={(payload) => handlePick("fish", payload)}
+        />
+      </PresetPanel>
+
       <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/40 p-5 lg:col-span-2">
         <h3 className="text-lg font-semibold text-info">
           {activeGuest ? `${activeGuest.display_name}'s log` : "Your log"}
@@ -1406,6 +1447,7 @@ function KindBadge({ kind }: { kind: EntryKind }) {
     kind === "food" ? "#facc15" :
     kind === "sleep" ? "#60a5fa" :
     kind === "vomit" ? "#84cc16" :
+    kind === "fish" ? "#38bdf8" :
     "#a855f7";
   return (
     <span
@@ -1429,6 +1471,7 @@ function entryLabel(e: Entry): string {
   if (e.kind === "food") return `${p.size ?? "food"}`;
   if (e.kind === "sleep") return `${p.hours ?? "?"} h slept`;
   if (e.kind === "vomit") return `vomited (sev ${p.severity ?? "?"})`;
+  if (e.kind === "fish") return `caught ${p.species ?? "a fish"}`;
   return e.kind;
 }
 
