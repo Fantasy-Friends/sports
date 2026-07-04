@@ -13,6 +13,9 @@ export async function GET(
 ) {
   try {
     const { slug } = await context.params;
+    const session = await getAuthenticatedEntrant();
+    if (!session) return NextResponse.json({ error: "auth required" }, { status: 401 });
+
     const seasonId = await getCurrentSeasonId();
     if (!seasonId) return NextResponse.json({ error: "no active season" }, { status: 404 });
     const event = await getEventBySlug(slug, seasonId);
@@ -23,7 +26,16 @@ export async function GET(
       .select("entrant_id, submitted_at, locked_at, payload")
       .eq("event_id", event.event_id);
 
-    return NextResponse.json({ entries: data ?? [] });
+    // Hide other players' picks until entries are locked. Before that, only
+    // return the caller's own payload (so competitors can't scrape picks).
+    const revealAll = event.status === "locked" || event.status === "live" || event.status === "final";
+    const entries = (data ?? []).map((row) => {
+      const r = row as { entrant_id: string; submitted_at: string | null; locked_at: string | null; payload: unknown };
+      if (revealAll || r.entrant_id === session.entrant.entrant_id) return r;
+      return { entrant_id: r.entrant_id, submitted_at: r.submitted_at, locked_at: r.locked_at, payload: null };
+    });
+
+    return NextResponse.json({ entries });
   } catch (err) {
     return NextResponse.json(
       { error: getErrorMessage(err, "Failed to load entries") },

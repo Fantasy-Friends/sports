@@ -1299,7 +1299,7 @@ function LogTab({
         <PresetGrid
           presets={ALCOHOL_PRESETS.map((p) => ({
             label: p.name,
-            payload: { preset: p.name, oz: p.oz, abv: p.abv, pct: 1 },
+            payload: { preset: p.name, oz: p.oz, abv: p.abv, pct: 1, congener: p.congener },
           }))}
           disabled={busyKind !== null}
           onPick={(payload) => handlePick("drink", payload)}
