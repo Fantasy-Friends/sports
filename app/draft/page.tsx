@@ -184,7 +184,9 @@ function DraftPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [poolId, selectedTournament]);
+    // refreshTick re-polls the draft pointer every 30s so "on the clock",
+    // the countdown, and pick-button gating advance when OTHER entrants pick.
+  }, [poolId, selectedTournament, refreshTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -545,7 +547,7 @@ function DraftPageContent() {
               {draftState?.current_pick
                 ? `Pick ${draftState.current_pick} of ${draftState.max_picks ?? 54} · Round ${draftState.current_round ?? "-"}`
                 : !draftOpen
-                  ? "Draft is paused · opens 9AM–9PM Pacific when the commissioner unlocks it"
+                  ? "Draft is paused · runs 6AM–11PM Pacific when the commissioner unlocks it"
                   : "Ready for the first pick"}
               {!draftState?.is_complete && draftOpen && timeRemaining !== null
                 ? ` · ${formatCountdown(timeRemaining)} on clock`

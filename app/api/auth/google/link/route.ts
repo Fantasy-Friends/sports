@@ -6,6 +6,7 @@ import {
   getEntrantById,
   linkGoogleAccount,
 } from "@/lib/draftAuth";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getErrorMessage } from "@/lib/error";
 
 const GOOGLE_PENDING_EMAIL_COOKIE = "google_pending_email";
@@ -31,6 +32,22 @@ export async function POST(request: Request) {
     const entrant = await getEntrantById(entrantId);
     if (!entrant) {
       return NextResponse.json({ error: "Entrant not found" }, { status: 404 });
+    }
+
+    // Prevent account takeover: refuse to (re)link an entrant that is already
+    // claimed by a DIFFERENT Google account. Idempotent for your own email.
+    const { data: claim, error: claimErr } = await supabaseAdmin
+      .from("draft_entrants")
+      .select("google_email")
+      .eq("entrant_id", entrantId)
+      .maybeSingle<{ google_email: string | null }>();
+    if (claimErr) throw new Error(claimErr.message);
+    const existing = claim?.google_email?.toLowerCase() ?? null;
+    if (existing && existing !== pendingEmail.toLowerCase()) {
+      return NextResponse.json(
+        { error: "This player is already linked to another account. Ask the commissioner if this is you." },
+        { status: 409 },
+      );
     }
 
     await linkGoogleAccount(entrantId, pendingEmail);

@@ -399,6 +399,7 @@ export const CAFFEINE_PRESETS = [
   { name: "Green tea (8oz)", mg: 30, oz: 8 },
   { name: "Yerba Mate (16oz)", mg: 80, oz: 16 },
   { name: "Diet Coke (12oz)", mg: 46, oz: 12 },
+  { name: "Baja Blast Zero (12oz)", mg: 54, oz: 12 },
 ] as const;
 
 // Each preset includes a (rough) onset-to-peak time and elimination half-life
@@ -418,6 +419,7 @@ export const SUBSTANCE_PRESETS: ReadonlyArray<{
   { name: "Vyvanse 20mg",      type: "stimulant", severity: 1, duration_hours: 12, half_life_hours: 11, onset_minutes: 90 },
   { name: "Vyvanse 30mg",      type: "stimulant", severity: 2, duration_hours: 14, half_life_hours: 11, onset_minutes: 90 },
   { name: "Vyvanse 40mg",      type: "stimulant", severity: 2, duration_hours: 14, half_life_hours: 11, onset_minutes: 90 },
+  { name: "Vyvanse 50mg",      type: "stimulant", severity: 3, duration_hours: 15, half_life_hours: 11, onset_minutes: 90 },
   { name: "Vyvanse 60mg",      type: "stimulant", severity: 3, duration_hours: 16, half_life_hours: 11, onset_minutes: 90 },
   { name: "Adderall 10mg",     type: "stimulant", severity: 1, duration_hours: 8,  half_life_hours: 10, onset_minutes: 30 },
   { name: "Adderall 20mg",     type: "stimulant", severity: 2, duration_hours: 10, half_life_hours: 10, onset_minutes: 30 },

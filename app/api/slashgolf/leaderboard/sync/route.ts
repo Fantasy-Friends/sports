@@ -87,23 +87,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: metaError.message }, { status: 500 });
     }
 
-    const { error: deleteError } = await supabaseAdmin
-      .from("tournament_round_scores")
-      .delete()
-      .eq("pool_id", poolId)
-      .eq("tournament_slug", tournamentSlug);
-
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
-    }
-
+    // Upsert first so a failed write never leaves the tournament with zero
+    // scores (the old delete-then-insert wiped everything if the insert threw).
+    // PK is (pool_id, tournament_slug, golfer, round_number).
     if (roundRows.length > 0) {
-      const { error: insertError } = await supabaseAdmin
+      const { error: upsertError } = await supabaseAdmin
         .from("tournament_round_scores")
-        .insert(roundRows);
+        .upsert(roundRows, { onConflict: "pool_id,tournament_slug,golfer,round_number" });
 
-      if (insertError) {
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+      if (upsertError) {
+        return NextResponse.json({ error: upsertError.message }, { status: 500 });
+      }
+
+      // Prune only stale golfers (dropped from the leaderboard) — the fresh
+      // rows we just wrote are always kept.
+      const liveGolfers = Array.from(new Set(roundRows.map((r) => r.golfer)));
+      const { error: pruneError } = await supabaseAdmin
+        .from("tournament_round_scores")
+        .delete()
+        .eq("pool_id", poolId)
+        .eq("tournament_slug", tournamentSlug)
+        .not("golfer", "in", `(${liveGolfers.map((g) => `"${g.replace(/"/g, '""')}"`).join(",")})`);
+
+      if (pruneError) {
+        return NextResponse.json({ error: pruneError.message }, { status: 500 });
       }
     }
 
