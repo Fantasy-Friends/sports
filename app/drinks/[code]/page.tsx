@@ -117,6 +117,10 @@ export default function DrinkSessionPage() {
       }
       setState(json);
       setError(null);
+      // Advance the clock on every data refresh so a just-logged "Now" entry
+      // is evaluated against real time — not the throttled 15s `now` state,
+      // which would otherwise filter it out as "future" and read BAC as 0.
+      setNow(new Date());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load session");
     } finally {

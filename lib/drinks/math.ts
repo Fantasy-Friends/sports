@@ -10,6 +10,13 @@ export const CAFFEINE_HALF_LIFE_HOURS = 5;
 export const CAFFEINE_ONSET_MINUTES = 30; // peak plasma at ~30-45 min after oral intake
 export const HYDRATION_GOAL_OZ = 100;
 
+// Devices in a shared session rarely have perfectly synced clocks. Without a
+// grace window, a drink logged "now" on one phone reads as a future event on
+// another (clock a minute or two ahead) and gets dropped from BAC — the
+// "spikes then snaps to zero" bug. Count entries up to this far ahead of the
+// evaluating clock as having already happened.
+export const CLOCK_SKEW_GRACE_MS = 2 * 60_000;
+
 export type Sex = "male" | "female" | "other";
 
 export type DrinkPayload = {
@@ -173,7 +180,7 @@ export function alcoholGramsRemaining(
   const events: Ev[] = [];
   for (const e of entries) {
     const t = new Date(e.occurred_at).getTime();
-    if (!Number.isFinite(t) || t > nowMs) continue;
+    if (!Number.isFinite(t) || t > nowMs + CLOCK_SKEW_GRACE_MS) continue;
     if (e.kind === "drink") {
       const p = e.payload as DrinkPayload;
       if (!p || typeof p.oz !== "number" || typeof p.abv !== "number") continue;
@@ -242,8 +249,9 @@ export function caffeineMgRemaining(entries: Entry[], now: Date): number {
     const p = e.payload as CaffeinePayload;
     if (!p || typeof p.mg !== "number") continue;
     const t = new Date(e.occurred_at).getTime();
-    const hrs = (now.getTime() - t) / 3600000;
-    if (hrs < 0) continue;
+    if (!Number.isFinite(t) || t > now.getTime() + CLOCK_SKEW_GRACE_MS) continue;
+    // Clamp tiny clock-skew negatives to 0 so a just-logged coffee counts.
+    const hrs = Math.max(0, (now.getTime() - t) / 3600000);
     const fraction = hrs < onsetH
       ? hrs / onsetH
       : Math.pow(0.5, (hrs - onsetH) / CAFFEINE_HALF_LIFE_HOURS);
