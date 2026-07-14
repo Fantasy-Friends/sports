@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getErrorMessage } from "@/lib/error";
+import MoneyCell from "@/components/MoneyCell";
+import type { MoneyLedger, MoneyLedgerRow } from "@/lib/events/money";
 
 type LeaderboardRow = {
   entrant_id: string;
@@ -24,6 +26,7 @@ type Props = {
 export default function SeasonBoard({ year, compact = false }: Props) {
   const [season, setSeason] = useState<Season | null>(null);
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const [moneyByEntrant, setMoneyByEntrant] = useState<Map<string, MoneyLedgerRow>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -31,12 +34,23 @@ export default function SeasonBoard({ year, compact = false }: Props) {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`/api/season/${year}/leaderboard`, { cache: "no-store" });
-        if (!res.ok) throw new Error(`Failed to load season (${res.status})`);
-        const body = await res.json();
+        const [lbRes, moneyRes] = await Promise.all([
+          fetch(`/api/season/${year}/leaderboard`, { cache: "no-store" }),
+          fetch(`/api/season/${year}/money`, { cache: "no-store" }),
+        ]);
+        if (!lbRes.ok) throw new Error(`Failed to load season (${lbRes.status})`);
+        const body = await lbRes.json();
         if (cancelled) return;
         setSeason(body.season);
         setRows(body.rows ?? []);
+        // Money ledger is best-effort — never block standings on it.
+        if (moneyRes.ok) {
+          const moneyBody = await moneyRes.json();
+          const ledger = (moneyBody.ledger ?? null) as MoneyLedger | null;
+          if (ledger) {
+            setMoneyByEntrant(new Map(ledger.rows.map((r) => [r.entrant_id, r])));
+          }
+        }
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err, "Failed to load season"));
       } finally {
@@ -101,12 +115,13 @@ export default function SeasonBoard({ year, compact = false }: Props) {
               <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Events</th>
               <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Bonus</th>
               <th className="px-2 py-2 text-right font-medium">Total</th>
+              <th className="px-2 py-2 text-right font-medium">Bucks</th>
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-2 py-6 text-center text-sm text-muted">
+                <td colSpan={6} className="px-2 py-6 text-center text-sm text-muted">
                   No finalized events yet. Points land here once the commissioner closes an event.
                 </td>
               </tr>
@@ -133,6 +148,13 @@ export default function SeasonBoard({ year, compact = false }: Props) {
                   </td>
                   <td className="px-2 py-2 text-right text-base font-semibold tabular-nums text-info">
                     {row.total_points.toFixed(1)}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    {moneyByEntrant.has(row.entrant_id) ? (
+                      <MoneyCell row={moneyByEntrant.get(row.entrant_id)!} isMe={false} />
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
                   </td>
                 </tr>
               ))
