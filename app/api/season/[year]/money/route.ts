@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
-import { buildMoneyLedger, type MoneyEvent } from "@/lib/events/money";
+import { buildMoneyLedger, edgeKey, type MoneyEvent } from "@/lib/events/money";
 
 export const revalidate = 0;
 
@@ -72,6 +72,20 @@ export async function GET(
       finishesByEvent.set(f.event_id, arr);
     }
 
+    // Load settlements for these events → set of paid edge keys.
+    const settledKeys = new Set<string>();
+    if (eventIds.length > 0) {
+      const { data: settlements } = await supabaseAdmin
+        .from("event_settlements")
+        .select("event_id, payer_entrant_id, payee_entrant_id")
+        .in("event_id", eventIds);
+      for (const s of (settlements ?? []) as Array<{
+        event_id: string; payer_entrant_id: string; payee_entrant_id: string;
+      }>) {
+        settledKeys.add(edgeKey(s.event_id, s.payer_entrant_id, s.payee_entrant_id));
+      }
+    }
+
     const moneyEvents: MoneyEvent[] = eventRows.map((e) => {
       const feeRaw = e.config?.entry_fee;
       return {
@@ -89,6 +103,7 @@ export async function GET(
     const ledger = buildMoneyLedger(
       memberRows.map((m) => ({ entrant_id: m.entrant_id, display_name: m.display_name })),
       moneyEvents,
+      settledKeys,
     );
 
     return NextResponse.json({ season, ledger, me: auth.entrant.entrant_id });

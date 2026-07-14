@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getErrorMessage } from "@/lib/error";
 import MoneyCell from "@/components/MoneyCell";
 import type { MoneyLedger, MoneyLedgerRow } from "@/lib/events/money";
@@ -26,31 +26,34 @@ type Props = {
 export default function SeasonBoard({ year, compact = false }: Props) {
   const [season, setSeason] = useState<Season | null>(null);
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
-  const [moneyByEntrant, setMoneyByEntrant] = useState<Map<string, MoneyLedgerRow>>(new Map());
+  const [ledger, setLedger] = useState<MoneyLedger | null>(null);
+  const [me, setMe] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const loadMoney = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/season/${year}/money`, { cache: "no-store" });
+      if (!res.ok) return;
+      const body = await res.json();
+      setLedger((body.ledger ?? null) as MoneyLedger | null);
+      setMe((body.me ?? null) as string | null);
+    } catch {
+      /* money is best-effort — never block standings on it */
+    }
+  }, [year]);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const [lbRes, moneyRes] = await Promise.all([
-          fetch(`/api/season/${year}/leaderboard`, { cache: "no-store" }),
-          fetch(`/api/season/${year}/money`, { cache: "no-store" }),
-        ]);
-        if (!lbRes.ok) throw new Error(`Failed to load season (${lbRes.status})`);
-        const body = await lbRes.json();
+        const res = await fetch(`/api/season/${year}/leaderboard`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`Failed to load season (${res.status})`);
+        const body = await res.json();
         if (cancelled) return;
         setSeason(body.season);
         setRows(body.rows ?? []);
-        // Money ledger is best-effort — never block standings on it.
-        if (moneyRes.ok) {
-          const moneyBody = await moneyRes.json();
-          const ledger = (moneyBody.ledger ?? null) as MoneyLedger | null;
-          if (ledger) {
-            setMoneyByEntrant(new Map(ledger.rows.map((r) => [r.entrant_id, r])));
-          }
-        }
+        void loadMoney();
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err, "Failed to load season"));
       } finally {
@@ -61,7 +64,11 @@ export default function SeasonBoard({ year, compact = false }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [year]);
+  }, [year, loadMoney]);
+
+  const moneyByEntrant = new Map<string, MoneyLedgerRow>(
+    (ledger?.rows ?? []).map((r) => [r.entrant_id, r]),
+  );
 
   if (loading) {
     return (
@@ -151,7 +158,12 @@ export default function SeasonBoard({ year, compact = false }: Props) {
                   </td>
                   <td className="px-2 py-2 text-right">
                     {moneyByEntrant.has(row.entrant_id) ? (
-                      <MoneyCell row={moneyByEntrant.get(row.entrant_id)!} isMe={false} />
+                      <MoneyCell
+                        row={moneyByEntrant.get(row.entrant_id)!}
+                        isMe={row.entrant_id === me}
+                        year={year}
+                        onChanged={loadMoney}
+                      />
                     ) : (
                       <span className="text-xs text-muted">—</span>
                     )}
@@ -162,6 +174,18 @@ export default function SeasonBoard({ year, compact = false }: Props) {
           </tbody>
         </table>
       </div>
+
+      {ledger && ledger.total_pot > 0 && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/15 pt-3 text-[11px] text-muted">
+          <span>
+            TopGarage Bucks · ${ledger.entry_fee}/player per event · winner takes the pot
+          </span>
+          <span className="tabular-nums">
+            <span style={{ color: "#22c55e" }} className="font-semibold">${ledger.total_settled.toFixed(0)}</span> paid off ·{" "}
+            <span className="font-semibold text-danger">${ledger.total_outstanding.toFixed(0)}</span> outstanding
+          </span>
+        </div>
+      )}
     </div>
   );
 }
