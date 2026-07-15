@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getErrorMessage } from "@/lib/error";
-import { isTournamentPollingActive, TournamentSlug, TOURNAMENTS } from "@/lib/tournaments";
+import { getCurrentTournamentSlug, isTournamentPollingActive, TournamentSlug, TOURNAMENTS } from "@/lib/tournaments";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
 import AppShell from "@/components/AppShell";
 
@@ -34,7 +34,7 @@ type TournamentMetaOption = {
 
 export default function TournamentLeaderboardPage() {
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
-  const [selectedTournament, setSelectedTournament] = useState("pga-championship");
+  const [selectedTournament, setSelectedTournament] = useState<string>(getCurrentTournamentSlug());
   const [availableTournaments, setAvailableTournaments] = useState<TournamentMetaOption[]>(
     TOURNAMENTS.map((item) => ({ tournament_slug: item.slug, label: item.label }))
   );

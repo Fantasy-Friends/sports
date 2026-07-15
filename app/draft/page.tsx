@@ -106,7 +106,9 @@ function formatCountdown(totalSeconds: number | null) {
 function DraftPageContent() {
   const searchParams = useSearchParams();
   const basePoolId = process.env.NEXT_PUBLIC_POOL_ID || "2026-majors";
-  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>("pga-championship");
+  const [selectedTournament, setSelectedTournament] = useState<TournamentOption["slug"]>(
+    getCurrentTournamentSlug()
+  );
   const [query, setQuery] = useState("");
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftState, setDraftState] = useState<DraftStateRow | null>(null);
@@ -129,6 +131,9 @@ function DraftPageContent() {
   const [savingPicks, setSavingPicks] = useState(false);
   const [picksError, setPicksError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const [queue, setQueue] = useState<string[]>([]);
+  const [queueSaving, setQueueSaving] = useState(false);
 
   const poolId = `${basePoolId}-${selectedTournament}`;
   const entrantNames = useMemo(() => entrants.map((entrant) => entrant.entrant_name), [entrants]);
@@ -277,6 +282,31 @@ function DraftPageContent() {
     };
   }, [poolId, entrantNames, refreshTick]);
 
+  const sessionEntrantId = sessionEntrant?.entrant_id;
+  useEffect(() => {
+    if (!sessionEntrantId) {
+      setQueue([]);
+      return;
+    }
+    let cancelled = false;
+    async function loadQueue() {
+      try {
+        const res = await fetch(`/api/draft-queue?pool_id=${encodeURIComponent(poolId)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error ?? "Failed to load queue");
+        if (!cancelled) setQueue((json.golfers ?? []) as string[]);
+      } catch {
+        if (!cancelled) setQueue([]);
+      }
+    }
+    void loadQueue();
+    return () => {
+      cancelled = true;
+    };
+  }, [poolId, sessionEntrantId]);
+
   const pickedGolferIds = useMemo(() => {
     const picked = new Set<string>();
     for (const picks of Object.values(picksByEntrant)) {
@@ -284,6 +314,12 @@ function DraftPageContent() {
     }
     return picked;
   }, [picksByEntrant]);
+
+  const golferByName = useMemo(() => {
+    const map = new Map<string, Golfer>();
+    for (const g of golfers) map.set(g.golfer, g);
+    return map;
+  }, [golfers]);
 
   const activeEntrantName = sessionEntrant?.entrant_name ?? "";
   const activePicks = activeEntrantName ? picksByEntrant[activeEntrantName] ?? [] : [];
@@ -293,6 +329,17 @@ function DraftPageContent() {
     sessionEntrant &&
       draftState?.current_entrant_id &&
       sessionEntrant.entrant_id === draftState.current_entrant_id
+  );
+
+  // Drafted golfers drop off the queue automatically: editing always works from
+  // (and saves) the still-available list, so the stored queue stays clean.
+  const visibleQueue = useMemo(
+    () => queue.filter((golfer) => !pickedGolferIds.has(golfer)),
+    [queue, pickedGolferIds]
+  );
+  const queuedSet = useMemo(() => new Set(visibleQueue), [visibleQueue]);
+  const canDraftNow = Boolean(
+    sessionEntrant && draftOpen && isOnClock && !activeIsFull && !savingPicks && !draftState?.is_complete
   );
 
   const visibleGolfers = useMemo(() => {
@@ -429,6 +476,44 @@ function DraftPageContent() {
     } finally {
       setSavingPicks(false);
     }
+  }
+
+  async function saveQueue(next: string[]) {
+    if (!sessionEntrant) return;
+    setQueue(next);
+    setQueueSaving(true);
+    setPicksError(null);
+    try {
+      const res = await fetch("/api/draft-queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pool_id: poolId, golfers: next }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to save queue");
+      if (Array.isArray(json.golfers)) setQueue(json.golfers as string[]);
+    } catch (e: unknown) {
+      setPicksError(getErrorMessage(e, "Failed to save queue"));
+    } finally {
+      setQueueSaving(false);
+    }
+  }
+
+  function toggleQueue(golfer: string) {
+    if (!sessionEntrant || pickedGolferIds.has(golfer)) return;
+    void saveQueue(
+      queuedSet.has(golfer)
+        ? visibleQueue.filter((g) => g !== golfer)
+        : [...visibleQueue, golfer]
+    );
+  }
+
+  function moveQueue(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= visibleQueue.length) return;
+    const next = [...visibleQueue];
+    [next[index], next[target]] = [next[target], next[index]];
+    void saveQueue(next);
   }
 
   async function clearDraftBoard() {
@@ -790,34 +875,6 @@ function DraftPageContent() {
               </tbody>
             </table>
           </div>
-      </section>
-
-      <section className="soft-card rounded-2xl border border-border bg-surface p-4">
-        <h2 className="text-sm font-semibold">Draft Summary</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {draftSummaryNames.map((entrantName) => {
-            const picks = picksByEntrant[entrantName] ?? [];
-            return (
-              <div key={entrantName} className="rounded-xl border border-border/70 bg-bg/50 p-3">
-                <div className="text-sm font-semibold">{entrantName}</div>
-                <div className="mt-1 text-xs text-muted">
-                  {picks.length} / {MAX_PICKS_PER_ENTRANT} picks
-                </div>
-                {entrants.find((entrant) => entrant.entrant_name === entrantName)?.auto_draft_enabled && (
-                  <div className="mt-1 text-[11px] uppercase tracking-wide text-accent">Auto Draft</div>
-                )}
-                <div className="mt-2 space-y-1 text-xs">
-                  {picks.length === 0 && <div className="text-muted">No picks yet.</div>}
-                  {picks.map((golfer, idx) => (
-                    <div key={`${entrantName}-${golfer}-${idx}`}>
-                      {idx + 1}. {golfer}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </section>
 
       {sessionEntrant?.is_admin && (

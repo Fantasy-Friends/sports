@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import pgaLogo from "@/public/pga-championship.png";
 import AppShell from "@/components/AppShell";
 import { initialsFor, tintFor } from "@/lib/avatarTint";
+import { getCurrentTournamentSlug } from "@/lib/tournaments";
+
+// The featured hero follows the current major (same calendar logic as the draft
+// and lottery pages) by mapping the tournament slug to its season event slug.
+const GOLF_EVENT_SLUG_BY_TOURNAMENT: Record<string, string> = {
+  masters: "2026-masters",
+  "pga-championship": "2026-pga-championship",
+  "us-open": "2026-us-open-golf",
+  "the-open": "2026-the-open",
+};
 
 /*
  * Home — wired to real data, wrapped in AppShell.
@@ -167,7 +175,10 @@ function HomeContent() {
 
   const liveEvent = useMemo(() => events.find((e) => e.status === "live") ?? null, [events]);
 
-  const HERO_EVENT_SLUG = "2026-pga-championship";
+  const HERO_EVENT_SLUG = useMemo(
+    () => GOLF_EVENT_SLUG_BY_TOURNAMENT[getCurrentTournamentSlug()] ?? "2026-us-open-golf",
+    [],
+  );
   const COMING_SOON_SLUGS = useMemo(
     () => new Set(["2026-nba-playoffs-bracket", "2026-nhl-playoffs-bracket"]),
     [],
@@ -175,7 +186,7 @@ function HomeContent() {
 
   const featuredEvent = useMemo(
     () => events.find((e) => e.slug === HERO_EVENT_SLUG) ?? null,
-    [events],
+    [events, HERO_EVENT_SLUG],
   );
 
   const comingSoonEvents = useMemo(
@@ -191,7 +202,7 @@ function HomeContent() {
       .filter((e) => e.status === "open-entry")
       .filter((e) => e.slug !== HERO_EVENT_SLUG && !COMING_SOON_SLUGS.has(e.slug))
       .sort((a, b) => (a.starts_at ?? "") > (b.starts_at ?? "") ? 1 : -1),
-    [events, COMING_SOON_SLUGS],
+    [events, COMING_SOON_SLUGS, HERO_EVENT_SLUG],
   );
 
   const nextEvent = useMemo(() => {
@@ -203,7 +214,7 @@ function HomeContent() {
       .filter((e) => Boolean(e.starts_at))
       .sort((a, b) => (a.starts_at! > b.starts_at! ? 1 : -1));
     return upcoming[0] ?? null;
-  }, [events, liveEvent, featuredEvent, openEntryEvents, COMING_SOON_SLUGS]);
+  }, [events, liveEvent, featuredEvent, openEntryEvents, COMING_SOON_SLUGS, HERO_EVENT_SLUG]);
 
   const topPool = useMemo(
     () =>
@@ -232,29 +243,16 @@ function HomeContent() {
               "linear-gradient(180deg, #0d1640 0%, #080e2a 70%, #04091800 100%)",
           }}
         >
-          {/* PGA Championship logo badge */}
-          <div className="absolute right-4 top-4 sm:right-7 sm:top-7">
-            <div className="rounded-2xl bg-white/90 p-2 shadow-lg">
-              <Image
-                src={pgaLogo}
-                alt="2026 PGA Championship"
-                className="h-16 w-16 object-contain sm:h-20 sm:w-20"
-                width={80}
-                height={80}
-              />
-            </div>
-          </div>
-
           <div className="px-5 py-7 sm:px-8 sm:py-9">
             <div className="text-[11px] uppercase tracking-[0.32em] text-[#f5c11c]/85">
               Featured · Tier {featuredEvent.tier}
             </div>
-            <h2 className="mt-2 pr-24 font-serif text-3xl font-semibold leading-[0.95] text-white sm:pr-28 sm:text-4xl md:text-5xl">
-              {featuredEvent.name}
+            <h2 className="mt-2 font-serif text-3xl font-semibold leading-[0.95] text-white sm:text-4xl md:text-5xl">
+              {featuredEvent.name.replace(/\s*\(Golf\)$/, "")}
             </h2>
             <p className="mt-3 max-w-md text-sm text-white/70 sm:text-base">
-              The season&rsquo;s second major is here. Draft your six golfers, lock your picks
-              before Thursday, and battle it out at Aronimink.
+              The next major is here. Draft your six golfers and lock your picks before the
+              first tee.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-3">
               <Link
