@@ -4,7 +4,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage } from "@/lib/error";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
-import { getCurrentTournamentSlug } from "@/lib/tournaments";
+import { useDraftQueue } from "@/lib/useDraftQueue";
+import DraftQueuePanel, { type QueueGolfer } from "@/components/DraftQueuePanel";
 import AppShell from "@/components/AppShell";
 
 type Golfer = {
@@ -350,6 +351,42 @@ function DraftPageContent() {
     });
   }, [golfers, pickedGolferIds, query]);
 
+  // Personal draft queue (localStorage, per pool).
+  const draftQueue = useDraftQueue(poolId);
+  const golferByName = useMemo(() => {
+    const map = new Map<string, Golfer>();
+    for (const g of golfers) map.set(g.golfer, g);
+    return map;
+  }, [golfers]);
+  const drafterByGolfer = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [name, picks] of Object.entries(picksByEntrant)) {
+      for (const g of picks) map.set(g, name);
+    }
+    return map;
+  }, [picksByEntrant]);
+  const canPickNow = Boolean(
+    sessionEntrant && draftOpen && isOnClock && !activeIsFull && !draftState?.is_complete,
+  );
+  const queueItems: QueueGolfer[] = useMemo(
+    () =>
+      draftQueue.queue.map((name) => ({
+        name,
+        rank: golferByName.get(name)?.rank ?? null,
+        drafted: pickedGolferIds.has(name),
+        draftedBy: drafterByGolfer.get(name) ?? null,
+      })),
+    [draftQueue.queue, golferByName, pickedGolferIds, drafterByGolfer],
+  );
+  const sortQueueByRank = () => {
+    const sorted = [...draftQueue.queue].sort((a, b) => {
+      const ra = golferByName.get(a)?.rank ?? Number.POSITIVE_INFINITY;
+      const rb = golferByName.get(b)?.rank ?? Number.POSITIVE_INFINITY;
+      return ra - rb;
+    });
+    draftQueue.setQueue(sorted);
+  };
+
   const timeRemaining = useMemo(() => {
     void clockTick;
     if (!draftState?.turn_expires_at) return null;
@@ -632,129 +669,23 @@ function DraftPageContent() {
         </section>
       )}
 
-      {sessionEntrant && (
-        <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-[11px] uppercase tracking-[0.28em] text-muted">Your queue</div>
-            <div className="text-[11px] text-muted">
-              {queueSaving
-                ? "Saving…"
-                : sessionEntrant.auto_draft_enabled
-                  ? "Drives your auto-draft"
-                  : "Used when auto-draft is on"}
-            </div>
-          </div>
-          <p className="mt-1 text-xs text-muted">
-            Auto-draft takes the top available golfer here, then falls back to best rank. Private to you.
-          </p>
-
-          {canDraftNow && visibleQueue.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void addPick(visibleQueue[0])}
-              disabled={savingPicks}
-              className="mt-3 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-black disabled:opacity-50"
-            >
-              Draft top of queue · {visibleQueue[0]}
-            </button>
+      <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="text-[11px] uppercase tracking-[0.28em] text-muted">My Queue</div>
+          {queueItems.length > 0 && (
+            <span className="text-[11px] text-muted">{queueItems.filter((q) => !q.drafted).length} available</span>
           )}
-
-          {visibleQueue.length === 0 ? (
-            <div className="mt-3 rounded-xl border border-border/60 bg-bg/40 px-3 py-3 text-xs text-muted">
-              Empty — tap “+ Queue” on any golfer below to build your order.
-            </div>
-          ) : (
-            <ol className="mt-3 space-y-2">
-              {visibleQueue.map((golfer, idx) => {
-                const meta = golferByName.get(golfer);
-                return (
-                <li
-                  key={golfer}
-                  className="flex items-center gap-2 rounded-xl border border-border/60 bg-bg/60 px-3 py-2"
-                >
-                  <span className="w-5 shrink-0 text-xs font-semibold text-muted">{idx + 1}</span>
-                  <span className="inline-flex min-w-[1.75rem] shrink-0 justify-center rounded-md bg-surface/60 px-1.5 py-0.5 text-xs font-semibold text-muted">
-                    {meta ? `#${meta.rank}` : "—"}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{golfer}</div>
-                    <div className="text-[11px] text-muted">
-                      {meta ? `Hdcp ${meta.handicap.toFixed(1)}` : "—"}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => moveQueue(idx, -1)}
-                      disabled={idx === 0 || queueSaving}
-                      aria-label={`Move ${golfer} up`}
-                      className="rounded-md border border-border/60 px-1.5 py-0.5 text-xs disabled:opacity-40"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveQueue(idx, 1)}
-                      disabled={idx === visibleQueue.length - 1 || queueSaving}
-                      aria-label={`Move ${golfer} down`}
-                      className="rounded-md border border-border/60 px-1.5 py-0.5 text-xs disabled:opacity-40"
-                    >
-                      ↓
-                    </button>
-                    {canDraftNow && (
-                      <button
-                        type="button"
-                        onClick={() => void addPick(golfer)}
-                        disabled={savingPicks}
-                        className="rounded-md bg-accent px-2 py-0.5 text-xs font-semibold text-black disabled:opacity-50"
-                      >
-                        Draft
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => toggleQueue(golfer)}
-                      disabled={queueSaving}
-                      aria-label={`Remove ${golfer} from queue`}
-                      className="rounded-md border border-border/60 px-1.5 py-0.5 text-xs text-muted disabled:opacity-40"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </li>
-                );
-              })}
-            </ol>
-          )}
-        </section>
-      )}
-
-      <section className="soft-card rounded-2xl border border-border bg-surface p-4">
-        <h2 className="text-sm font-semibold">Draft Summary</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {draftSummaryNames.map((entrantName) => {
-            const picks = picksByEntrant[entrantName] ?? [];
-            return (
-              <div key={entrantName} className="rounded-xl border border-border/70 bg-bg/50 p-3">
-                <div className="text-sm font-semibold">{entrantName}</div>
-                <div className="mt-1 text-xs text-muted">
-                  {picks.length} / {MAX_PICKS_PER_ENTRANT} picks
-                </div>
-                {entrants.find((entrant) => entrant.entrant_name === entrantName)?.auto_draft_enabled && (
-                  <div className="mt-1 text-[11px] uppercase tracking-wide text-accent">Auto Draft</div>
-                )}
-                <div className="mt-2 space-y-1 text-xs">
-                  {picks.length === 0 && <div className="text-muted">No picks yet.</div>}
-                  {picks.map((golfer, idx) => (
-                    <div key={`${entrantName}-${golfer}-${idx}`}>
-                      {idx + 1}. {golfer}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
         </div>
+        <DraftQueuePanel
+          items={queueItems}
+          canPickNow={canPickNow}
+          savingPicks={savingPicks}
+          onReorder={(from, to) => draftQueue.move(from, to)}
+          onSortByRank={sortQueueByRank}
+          onRemove={(name) => draftQueue.remove(name)}
+          onDraft={(name) => void addPick(name)}
+          onClear={() => draftQueue.setQueue([])}
+        />
       </section>
 
       <section className="soft-card rounded-2xl border border-border bg-surface p-3 sm:p-4">
@@ -829,40 +760,31 @@ function DraftPageContent() {
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-stretch gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => void addPick(golfer.golfer)}
-                      disabled={!canPick}
-                      aria-label={`Draft ${golfer.golfer}`}
-                      className={[
-                        "rounded-lg px-4 py-2 text-sm font-semibold",
-                        canPick ? "bg-accent text-black" : "bg-border text-muted",
-                      ].join(" ")}
-                    >
-                      {buttonLabel}
-                    </button>
-                    {sessionEntrant && (
-                      <button
-                        type="button"
-                        onClick={() => toggleQueue(golfer.golfer)}
-                        disabled={queueSaving}
-                        aria-label={
-                          queuedSet.has(golfer.golfer)
-                            ? `Remove ${golfer.golfer} from queue`
-                            : `Add ${golfer.golfer} to queue`
-                        }
-                        className={[
-                          "rounded-lg px-4 py-1.5 text-xs font-semibold disabled:opacity-50",
-                          queuedSet.has(golfer.golfer)
-                            ? "bg-accent/15 text-accent"
-                            : "border border-border bg-bg text-text",
-                        ].join(" ")}
-                      >
-                        {queuedSet.has(golfer.golfer) ? "Queued" : "+ Queue"}
-                      </button>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => draftQueue.toggle(golfer.golfer)}
+                    aria-label={draftQueue.queue.includes(golfer.golfer) ? `Remove ${golfer.golfer} from queue` : `Add ${golfer.golfer} to queue`}
+                    className={[
+                      "shrink-0 rounded-lg border px-2.5 py-2 text-xs font-semibold",
+                      draftQueue.queue.includes(golfer.golfer)
+                        ? "border-accent/50 bg-accent/10 text-accent"
+                        : "border-border/60 text-muted",
+                    ].join(" ")}
+                  >
+                    {draftQueue.queue.includes(golfer.golfer) ? "✓ Queued" : "＋ Queue"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void addPick(golfer.golfer)}
+                    disabled={!canPick}
+                    aria-label={`Draft ${golfer.golfer}`}
+                    className={[
+                      "shrink-0 rounded-lg px-4 py-2 text-sm font-semibold",
+                      canPick ? "bg-accent text-black" : "bg-border text-muted",
+                    ].join(" ")}
+                  >
+                    {buttonLabel}
+                  </button>
                 </li>
               );
             })}
@@ -910,23 +832,20 @@ function DraftPageContent() {
                           <span className="text-xs text-accent">Available</span>
                         )}
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {sessionEntrant && (
-                            <button
-                              type="button"
-                              onClick={() => toggleQueue(golfer.golfer)}
-                              disabled={queueSaving}
-                              className={[
-                                "rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-50",
-                                queuedSet.has(golfer.golfer)
-                                  ? "bg-accent/15 text-accent"
-                                  : "border border-border bg-bg text-text",
-                              ].join(" ")}
-                            >
-                              {queuedSet.has(golfer.golfer) ? "Queued" : "+ Queue"}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => draftQueue.toggle(golfer.golfer)}
+                            className={[
+                              "rounded-lg border px-2.5 py-1.5 text-xs font-semibold",
+                              draftQueue.queue.includes(golfer.golfer)
+                                ? "border-accent/50 bg-accent/10 text-accent"
+                                : "border-border/60 text-muted hover:text-text",
+                            ].join(" ")}
+                          >
+                            {draftQueue.queue.includes(golfer.golfer) ? "✓ Queued" : "＋ Queue"}
+                          </button>
                           <button
                             type="button"
                             onClick={() => void addPick(golfer.golfer)}
