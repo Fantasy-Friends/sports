@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage } from "@/lib/error";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
@@ -133,6 +133,8 @@ function DraftPageContent() {
 
   const [queue, setQueue] = useState<string[]>([]);
   const [queueSaving, setQueueSaving] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
 
   const poolId = `${basePoolId}-${selectedTournament}`;
   const entrantNames = useMemo(() => entrants.map((entrant) => entrant.entrant_name), [entrants]);
@@ -479,6 +481,45 @@ function DraftPageContent() {
     void saveQueue(next);
   }
 
+  // Move an item from one index to another (drag reorder).
+  function reorderQueue(from: number, to: number) {
+    if (from === to || from < 0 || to < 0 || from >= visibleQueue.length || to >= visibleQueue.length) return;
+    const next = [...visibleQueue];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    void saveQueue(next);
+  }
+
+  function sortQueueByRank() {
+    const next = [...visibleQueue].sort((a, b) => {
+      const ra = golferByName.get(a)?.rank ?? Number.POSITIVE_INFINITY;
+      const rb = golferByName.get(b)?.rank ?? Number.POSITIVE_INFINITY;
+      return ra - rb;
+    });
+    void saveQueue(next);
+  }
+
+  // Drag reorder (pointer events — works on touch + mouse).
+  function queueIndexFromPoint(clientX: number, clientY: number): number | null {
+    const el = document.elementFromPoint(clientX, clientY);
+    const row = el?.closest<HTMLElement>("[data-qindex]");
+    if (!row) return null;
+    const idx = Number(row.dataset.qindex);
+    return Number.isFinite(idx) ? idx : null;
+  }
+  function handleQueuePointerMove(e: ReactPointerEvent) {
+    if (dragIndex === null) return;
+    const idx = queueIndexFromPoint(e.clientX, e.clientY);
+    if (idx !== null) setOverIndex(idx);
+  }
+  function handleQueuePointerUp() {
+    if (dragIndex !== null && overIndex !== null && dragIndex !== overIndex) {
+      reorderQueue(dragIndex, overIndex);
+    }
+    setDragIndex(null);
+    setOverIndex(null);
+  }
+
   async function clearDraftBoard() {
     if (!sessionEntrant?.is_admin) return;
 
@@ -648,6 +689,20 @@ function DraftPageContent() {
             Auto-draft takes the top available golfer here, then falls back to best rank. Private to you.
           </p>
 
+          {visibleQueue.length > 1 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={sortQueueByRank}
+                disabled={queueSaving}
+                className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent disabled:opacity-50 hover:bg-accent/20"
+              >
+                Sort by rank
+              </button>
+              <span className="text-[11px] text-muted">Drag the ⠿ handle or use ↑↓ to reorder</span>
+            </div>
+          )}
+
           {canDraftNow && visibleQueue.length > 0 && (
             <button
               type="button"
@@ -664,14 +719,43 @@ function DraftPageContent() {
               Empty — tap “+ Queue” on any golfer below to build your order.
             </div>
           ) : (
-            <ol className="mt-3 space-y-2">
+            <ol
+              className="mt-3 space-y-2"
+              onPointerMove={handleQueuePointerMove}
+              onPointerUp={handleQueuePointerUp}
+              onPointerCancel={handleQueuePointerUp}
+            >
               {visibleQueue.map((golfer, idx) => {
                 const meta = golferByName.get(golfer);
+                const isDragging = dragIndex === idx;
+                const isOver = overIndex === idx && dragIndex !== null && dragIndex !== idx;
                 return (
                 <li
                   key={golfer}
-                  className="flex items-center gap-2 rounded-xl border border-border/60 bg-bg/60 px-3 py-2"
+                  data-qindex={idx}
+                  className={[
+                    "flex items-center gap-2 rounded-xl border bg-bg/60 px-3 py-2",
+                    isDragging ? "border-accent/70 opacity-60" : "border-border/60",
+                    isOver ? "border-accent/70 ring-1 ring-accent/40" : "",
+                  ].join(" ")}
                 >
+                  <button
+                    type="button"
+                    aria-label={`Drag ${golfer} to reorder`}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+                      setDragIndex(idx);
+                      setOverIndex(idx);
+                    }}
+                    className="shrink-0 cursor-grab touch-none select-none px-0.5 text-muted active:cursor-grabbing"
+                  >
+                    <svg viewBox="0 0 12 20" className="h-4 w-3" fill="currentColor" aria-hidden="true">
+                      <circle cx="3" cy="4" r="1.4" /><circle cx="9" cy="4" r="1.4" />
+                      <circle cx="3" cy="10" r="1.4" /><circle cx="9" cy="10" r="1.4" />
+                      <circle cx="3" cy="16" r="1.4" /><circle cx="9" cy="16" r="1.4" />
+                    </svg>
+                  </button>
                   <span className="w-5 shrink-0 text-xs font-semibold text-muted">{idx + 1}</span>
                   <span className="inline-flex min-w-[1.75rem] shrink-0 justify-center rounded-md bg-surface/60 px-1.5 py-0.5 text-xs font-semibold text-muted">
                     {meta ? `#${meta.rank}` : "—"}
