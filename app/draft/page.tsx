@@ -4,6 +4,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage } from "@/lib/error";
 import { formatLastUpdated, useAutoRefreshValue } from "@/lib/useAutoRefresh";
+import { useDraftQueue } from "@/lib/useDraftQueue";
+import DraftQueuePanel, { type QueueGolfer } from "@/components/DraftQueuePanel";
 import AppShell from "@/components/AppShell";
 
 type Golfer = {
@@ -302,6 +304,42 @@ function DraftPageContent() {
     });
   }, [golfers, pickedGolferIds, query]);
 
+  // Personal draft queue (localStorage, per pool).
+  const draftQueue = useDraftQueue(poolId);
+  const golferByName = useMemo(() => {
+    const map = new Map<string, Golfer>();
+    for (const g of golfers) map.set(g.golfer, g);
+    return map;
+  }, [golfers]);
+  const drafterByGolfer = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [name, picks] of Object.entries(picksByEntrant)) {
+      for (const g of picks) map.set(g, name);
+    }
+    return map;
+  }, [picksByEntrant]);
+  const canPickNow = Boolean(
+    sessionEntrant && draftOpen && isOnClock && !activeIsFull && !draftState?.is_complete,
+  );
+  const queueItems: QueueGolfer[] = useMemo(
+    () =>
+      draftQueue.queue.map((name) => ({
+        name,
+        rank: golferByName.get(name)?.rank ?? null,
+        drafted: pickedGolferIds.has(name),
+        draftedBy: drafterByGolfer.get(name) ?? null,
+      })),
+    [draftQueue.queue, golferByName, pickedGolferIds, drafterByGolfer],
+  );
+  const sortQueueByRank = () => {
+    const sorted = [...draftQueue.queue].sort((a, b) => {
+      const ra = golferByName.get(a)?.rank ?? Number.POSITIVE_INFINITY;
+      const rb = golferByName.get(b)?.rank ?? Number.POSITIVE_INFINITY;
+      return ra - rb;
+    });
+    draftQueue.setQueue(sorted);
+  };
+
   const timeRemaining = useMemo(() => {
     void clockTick;
     if (!draftState?.turn_expires_at) return null;
@@ -546,6 +584,25 @@ function DraftPageContent() {
         </section>
       )}
 
+      <section className="soft-card rounded-[1.5rem] border bg-surface/70 p-4">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="text-[11px] uppercase tracking-[0.28em] text-muted">My Queue</div>
+          {queueItems.length > 0 && (
+            <span className="text-[11px] text-muted">{queueItems.filter((q) => !q.drafted).length} available</span>
+          )}
+        </div>
+        <DraftQueuePanel
+          items={queueItems}
+          canPickNow={canPickNow}
+          savingPicks={savingPicks}
+          onReorder={(from, to) => draftQueue.move(from, to)}
+          onSortByRank={sortQueueByRank}
+          onRemove={(name) => draftQueue.remove(name)}
+          onDraft={(name) => void addPick(name)}
+          onClear={() => draftQueue.setQueue([])}
+        />
+      </section>
+
       <section className="soft-card rounded-2xl border border-border bg-surface p-3 sm:p-4">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0 flex-1">
@@ -620,6 +677,19 @@ function DraftPageContent() {
                   </div>
                   <button
                     type="button"
+                    onClick={() => draftQueue.toggle(golfer.golfer)}
+                    aria-label={draftQueue.queue.includes(golfer.golfer) ? `Remove ${golfer.golfer} from queue` : `Add ${golfer.golfer} to queue`}
+                    className={[
+                      "shrink-0 rounded-lg border px-2.5 py-2 text-xs font-semibold",
+                      draftQueue.queue.includes(golfer.golfer)
+                        ? "border-accent/50 bg-accent/10 text-accent"
+                        : "border-border/60 text-muted",
+                    ].join(" ")}
+                  >
+                    {draftQueue.queue.includes(golfer.golfer) ? "✓ Queued" : "＋ Queue"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void addPick(golfer.golfer)}
                     disabled={!canPick}
                     aria-label={`Draft ${golfer.golfer}`}
@@ -678,27 +748,41 @@ function DraftPageContent() {
                         )}
                       </td>
                       <td className="px-3 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => void addPick(golfer.golfer)}
-                          disabled={!canPick}
-                          className={[
-                            "rounded-lg px-3 py-1.5 text-xs font-semibold",
-                            canPick ? "bg-accent text-black" : "bg-border text-muted",
-                          ].join(" ")}
-                        >
-                          {!sessionEntrant
-                            ? "Sign in"
-                            : picked
-                              ? "Locked"
-                              : !draftOpen
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => draftQueue.toggle(golfer.golfer)}
+                            className={[
+                              "rounded-lg border px-2.5 py-1.5 text-xs font-semibold",
+                              draftQueue.queue.includes(golfer.golfer)
+                                ? "border-accent/50 bg-accent/10 text-accent"
+                                : "border-border/60 text-muted hover:text-text",
+                            ].join(" ")}
+                          >
+                            {draftQueue.queue.includes(golfer.golfer) ? "✓ Queued" : "＋ Queue"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void addPick(golfer.golfer)}
+                            disabled={!canPick}
+                            className={[
+                              "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                              canPick ? "bg-accent text-black" : "bg-border text-muted",
+                            ].join(" ")}
+                          >
+                            {!sessionEntrant
+                              ? "Sign in"
+                              : picked
                                 ? "Locked"
-                                : draftState?.is_complete
-                                  ? "Done"
-                                  : isOnClock
-                                    ? "Draft"
-                                    : "Wait"}
-                        </button>
+                                : !draftOpen
+                                  ? "Locked"
+                                  : draftState?.is_complete
+                                    ? "Done"
+                                    : isOnClock
+                                      ? "Draft"
+                                      : "Wait"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
