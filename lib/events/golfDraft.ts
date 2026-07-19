@@ -24,10 +24,16 @@ type GolfConfig = {
 };
 
 function resolveLegacyKey(event: EventRow): { poolId: string; tournament: string } | null {
-  if (!event.legacy_pool_id) return null;
   const config = (event.config ?? {}) as GolfConfig;
   const tournament = config.tournament_slug ?? event.slug.replace(/^\d+-/, "");
-  return { poolId: event.legacy_pool_id, tournament };
+  if (!tournament) return null;
+  // Only the Masters was seeded with an explicit legacy_pool_id. Every other
+  // golf event follows the same `{basePool}-{tournamentSlug}` convention the
+  // draft room uses (e.g. 2026-majors-the-open), so derive it when the column
+  // is null rather than failing to finalize.
+  const basePool = process.env.NEXT_PUBLIC_POOL_ID || process.env.POOL_ID || "2026-majors";
+  const poolId = event.legacy_pool_id ?? `${basePool}-${tournament}`;
+  return { poolId, tournament };
 }
 
 /**
