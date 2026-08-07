@@ -10,6 +10,23 @@ import { GOOGLE_OAUTH_STATE_COOKIE } from "../route";
 
 const GOOGLE_PENDING_EMAIL_COOKIE = "google_pending_email";
 
+// Vercel→Google fetches occasionally fail at the network layer
+// ("TypeError: fetch failed" — DNS/TLS/socket, no HTTP response). One retry
+// with a short backoff absorbs those blips instead of bouncing the user to
+// the generic sign-in error.
+async function fetchWithRetry(input: string, init: RequestInit, attempts = 3): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 300 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -36,7 +53,7 @@ export async function GET(request: Request) {
 
   try {
     // Exchange authorization code for tokens
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    const tokenRes = await fetchWithRetry("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -57,7 +74,7 @@ export async function GET(request: Request) {
     const tokens = (await tokenRes.json()) as { access_token: string };
 
     // Get user info from Google
-    const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+    const userRes = await fetchWithRetry("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
 
@@ -108,7 +125,9 @@ export async function GET(request: Request) {
     response.cookies.delete(GOOGLE_OAUTH_STATE_COOKIE);
     return response;
   } catch (err) {
-    console.error("Google OAuth callback error:", getErrorMessage(err, "unknown"));
+    // "fetch failed" hides the real network error in err.cause — log both.
+    const cause = err instanceof Error && err.cause ? ` (cause: ${String(err.cause)})` : "";
+    console.error("Google OAuth callback error:", getErrorMessage(err, "unknown") + cause);
     return NextResponse.redirect(new URL("/sign-in?error=server_error", url.origin));
   }
 }
