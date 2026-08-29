@@ -5,7 +5,6 @@ import {
   DRAFT_SESSION_COOKIE,
   getEntrantByEmail,
 } from "@/lib/draftAuth";
-import { getErrorMessage } from "@/lib/error";
 import { GOOGLE_OAUTH_STATE_COOKIE } from "../route";
 
 const GOOGLE_PENDING_EMAIL_COOKIE = "google_pending_email";
@@ -125,9 +124,23 @@ export async function GET(request: Request) {
     response.cookies.delete(GOOGLE_OAUTH_STATE_COOKIE);
     return response;
   } catch (err) {
-    // "fetch failed" hides the real network error in err.cause — log both.
-    const cause = err instanceof Error && err.cause ? ` (cause: ${String(err.cause)})` : "";
-    console.error("Google OAuth callback error:", getErrorMessage(err, "unknown") + cause);
-    return NextResponse.redirect(new URL("/sign-in?error=server_error", url.origin));
+    // Flatten the full cause chain into one line — Vercel logs truncate
+    // multi-line output, which is how "fetch failed" hid its real cause.
+    const parts: string[] = [];
+    let cur: unknown = err;
+    for (let depth = 0; cur && depth < 5; depth += 1) {
+      parts.push(cur instanceof Error ? `${cur.name}: ${cur.message}` : String(cur));
+      cur = cur instanceof Error ? cur.cause : undefined;
+    }
+    const detail = parts.join(" <- ");
+    console.error("Google OAuth callback error:", detail);
+
+    // A thrown/stringified fetch failure is a transient network blip
+    // (Google or Supabase egress), not a config problem — tell the user to
+    // simply retry instead of showing the scary generic error.
+    const isNetwork = /fetch failed/i.test(detail);
+    return NextResponse.redirect(
+      new URL(`/sign-in?error=${isNetwork ? "network" : "server_error"}`, url.origin),
+    );
   }
 }

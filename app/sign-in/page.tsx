@@ -43,6 +43,7 @@ function SignInPageContent() {
     token_failed: "Couldn't complete sign-in with Google. Please try again.",
     userinfo_failed: "Couldn't retrieve your Google account info. Please try again.",
     no_email: "Your Google account doesn't have a verified email address.",
+    network: "Brief network hiccup reaching the server — wait a few seconds and tap Sign in again.",
     server_error: "An unexpected error occurred. Please try again.",
   };
 
