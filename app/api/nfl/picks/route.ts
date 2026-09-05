@@ -3,53 +3,18 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
 import { currentNflSeason, fetchNflWeek } from "@/lib/nfl";
+import {
+  americanToDecimal,
+  canonicalEntrantId,
+  moneylineFor,
+  seasonDisplayNames,
+  type PickRow,
+} from "@/lib/nflPickem";
 
 export const revalidate = 0;
 
-type PickRow = {
-  season: number;
-  week: number;
-  entrant_id: string;
-  game_id: string;
-  picked_team: string;
-  confidence: number;
-};
-
-// The same person has a different entrant_id per pool; season_members holds
-// the canonical id. Resolve by display name (the same bridge golfDraft uses)
-// so picks land on one identity no matter which pool session you're in.
-async function canonicalEntrantId(entrantId: string, entrantName: string): Promise<string> {
-  const { data: season } = await supabaseAdmin
-    .from("seasons")
-    .select("season_id")
-    .eq("year", currentNflSeason())
-    .maybeSingle<{ season_id: string }>();
-  if (!season) return entrantId;
-  const { data: members } = await supabaseAdmin
-    .from("season_members")
-    .select("entrant_id, display_name")
-    .eq("season_id", season.season_id);
-  const match = (members ?? []).find(
-    (m) => m.display_name.trim().toLowerCase() === entrantName.trim().toLowerCase(),
-  );
-  return match?.entrant_id ?? entrantId;
-}
-
-async function displayNames(): Promise<Map<string, string>> {
-  const { data: season } = await supabaseAdmin
-    .from("seasons")
-    .select("season_id")
-    .eq("year", currentNflSeason())
-    .maybeSingle<{ season_id: string }>();
-  const out = new Map<string, string>();
-  if (!season) return out;
-  const { data: members } = await supabaseAdmin
-    .from("season_members")
-    .select("entrant_id, display_name")
-    .eq("season_id", season.season_id);
-  for (const m of members ?? []) out.set(m.entrant_id, m.display_name);
-  return out;
-}
+const PICK_COLUMNS =
+  "season, week, entrant_id, game_id, picked_team, confidence, is_bet, bet_decimal, parlay_group";
 
 // GET ?week=N → your picks for the week, plus everyone's picks for games
 // that have kicked off (pre-kickoff picks stay hidden so nobody can copy).
@@ -68,11 +33,11 @@ export async function GET(request: NextRequest) {
     const [{ data: rows }, schedule, names] = await Promise.all([
       supabaseAdmin
         .from("nfl_pickem_picks")
-        .select("season, week, entrant_id, game_id, picked_team, confidence")
+        .select(PICK_COLUMNS)
         .eq("season", season)
         .eq("week", week),
       fetchNflWeek(week),
-      displayNames(),
+      seasonDisplayNames(),
     ]);
 
     const lockedGames = new Set(schedule.games.filter((g) => g.locked).map((g) => g.game_id));
@@ -94,8 +59,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST { week, picks: [{ game_id, picked_team, confidence }] } — replaces your
-// picks for the week's UNLOCKED games. Locked-game picks are immutable.
+// POST { week, picks: [{ game_id, picked_team, confidence, is_bet, parlay }] }
+// Replaces your picks for the week's UNLOCKED games. Locked-game picks (and
+// their bet/parlay flags + snapshotted odds) are immutable. Bets and parlay
+// legs snapshot the picked team's decimal moneyline server-side at save time.
 export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthenticatedEntrant();
@@ -103,7 +70,13 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as {
       week?: number;
-      picks?: Array<{ game_id?: string; picked_team?: string; confidence?: number }>;
+      picks?: Array<{
+        game_id?: string;
+        picked_team?: string;
+        confidence?: number;
+        is_bet?: boolean;
+        parlay?: boolean;
+      }>;
     };
     const week = Number(body.week);
     if (!Number.isInteger(week) || week < 1 || week > 18) {
@@ -118,26 +91,32 @@ export async function POST(request: NextRequest) {
     const me = await canonicalEntrantId(auth.entrant.entrant_id, auth.entrant.entrant_name);
     const season = currentNflSeason();
 
-    // Existing picks on locked games are kept and their confidences reserved.
+    // Existing picks on locked games are kept; their confidences and parlay
+    // legs stay reserved.
     const { data: existingRows } = await supabaseAdmin
       .from("nfl_pickem_picks")
-      .select("game_id, picked_team, confidence")
+      .select(PICK_COLUMNS)
       .eq("season", season)
       .eq("week", week)
       .eq("entrant_id", me);
-    const lockedExisting = ((existingRows ?? []) as Array<{ game_id: string; confidence: number }>)
-      .filter((r) => gameById.get(r.game_id)?.locked);
+    const lockedExisting = ((existingRows ?? []) as PickRow[]).filter(
+      (r) => gameById.get(r.game_id)?.locked,
+    );
     const reservedConfidence = new Set(lockedExisting.map((r) => r.confidence));
     const lockedGameIds = new Set(lockedExisting.map((r) => r.game_id));
+    const lockedParlayLegs = lockedExisting.filter((r) => r.parlay_group !== null).length;
 
     // Validate the submitted set.
     const clean: PickRow[] = [];
     const usedConfidence = new Set<number>();
     const usedGames = new Set<string>();
+    let parlayLegs = lockedParlayLegs;
     for (const p of submitted) {
       const gameId = String(p.game_id ?? "");
       const team = String(p.picked_team ?? "");
       const confidence = Number(p.confidence);
+      const isBet = p.is_bet === true;
+      const isParlay = p.parlay === true;
       const game = gameById.get(gameId);
       if (!game) return NextResponse.json({ error: `unknown game ${gameId}` }, { status: 400 });
       if (game.locked || lockedGameIds.has(gameId)) {
@@ -164,14 +143,45 @@ export async function POST(request: NextRequest) {
       if (usedGames.has(gameId)) {
         return NextResponse.json({ error: `duplicate pick for ${gameId}` }, { status: 400 });
       }
+
+      // Bets and parlay legs need a live moneyline to snapshot.
+      let betDecimal: number | null = null;
+      if (isBet || isParlay) {
+        const ml = moneylineFor(game, team);
+        if (ml === null) {
+          return NextResponse.json(
+            { error: `no moneyline available to bet on ${team} yet` },
+            { status: 400 },
+          );
+        }
+        betDecimal = Number(americanToDecimal(ml).toFixed(4));
+      }
+      if (isParlay) parlayLegs += 1;
+
       usedConfidence.add(confidence);
       usedGames.add(gameId);
-      clean.push({ season, week, entrant_id: me, game_id: gameId, picked_team: team, confidence });
+      clean.push({
+        season,
+        week,
+        entrant_id: me,
+        game_id: gameId,
+        picked_team: team,
+        confidence,
+        is_bet: isBet && !isParlay, // a parlay leg scores only via the parlay
+        bet_decimal: betDecimal,
+        parlay_group: isParlay ? 1 : null,
+      });
+    }
+
+    if (parlayLegs === 1) {
+      return NextResponse.json({ error: "a parlay needs 2-3 legs" }, { status: 400 });
+    }
+    if (parlayLegs > 3) {
+      return NextResponse.json({ error: "parlays are capped at 3 legs" }, { status: 400 });
     }
 
     // Replace unlocked picks: delete mine for this week except locked games,
-    // then insert the validated set (fully validated above, so the window
-    // between delete and insert only risks a re-submit, not bad data).
+    // then insert the validated set.
     let del = supabaseAdmin
       .from("nfl_pickem_picks")
       .delete()

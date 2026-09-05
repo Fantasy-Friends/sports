@@ -9,13 +9,37 @@ type PickRow = {
   game_id: string;
   picked_team: string;
   confidence: number;
+  is_bet: boolean;
+  bet_decimal: number | null;
+  parlay_group: number | null;
 };
 
 type RevealedPick = PickRow & { display_name: string };
 
-type LocalPick = { team: string; confidence: number | null };
+type LocalPick = { team: string; confidence: number | null; bet: boolean; parlay: boolean };
+
+type ParlaySummary = {
+  legs: number;
+  stake: number;
+  combined_decimal: number;
+  status: "pending" | "won" | "busted";
+  points: number;
+};
+
+type StandingRow = {
+  entrant_id: string;
+  display_name: string;
+  total: number;
+  correct: number;
+  finals_played: number;
+  straight_points: number;
+  bet_points: number;
+  parlay: ParlaySummary | null;
+};
 
 const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
+const GREEN = "#22c55e";
+const AMBER = "#f59e0b";
 
 function kickoffLabel(iso: string): string {
   const d = new Date(iso);
@@ -34,16 +58,39 @@ function mlLabel(ml: number | null): string {
   return ml > 0 ? `+${ml}` : String(ml);
 }
 
+function amToDec(ml: number): number {
+  return ml > 0 ? 1 + ml / 100 : 1 + 100 / -ml;
+}
+
+function teamMl(game: NflGame, team: string): number | null {
+  if (!game.odds) return null;
+  if (team === game.home.abbr) return game.odds.home_ml;
+  if (team === game.away.abbr) return game.odds.away_ml;
+  return null;
+}
+
 export default function PickemPage() {
   const [week, setWeek] = useState<number | null>(null);
   const [schedule, setSchedule] = useState<NflWeek | null>(null);
   const [picks, setPicks] = useState<Record<string, LocalPick>>({});
   const [revealed, setRevealed] = useState<RevealedPick[]>([]);
+  const [standings, setStandings] = useState<StandingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  const loadStandings = useCallback(async (w: number) => {
+    try {
+      const res = await fetch(`/api/nfl/scores?week=${w}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      setStandings((json.standings ?? []) as StandingRow[]);
+    } catch {
+      /* standings are best-effort */
+    }
+  }, []);
 
   const loadWeek = useCallback(async (w: number | null) => {
     setLoading(true);
@@ -63,22 +110,30 @@ export default function PickemPage() {
       if (!picksRes.ok) throw new Error(picksJson?.error ?? "Failed to load picks");
       const mine = (picksJson.mine ?? []) as PickRow[];
       const next: Record<string, LocalPick> = {};
-      for (const p of mine) next[p.game_id] = { team: p.picked_team, confidence: p.confidence };
+      for (const p of mine) {
+        next[p.game_id] = {
+          team: p.picked_team,
+          confidence: p.confidence,
+          bet: p.is_bet,
+          parlay: p.parlay_group !== null,
+        };
+      }
       setPicks(next);
       setRevealed((picksJson.revealed ?? []) as RevealedPick[]);
       setDirty(false);
+      void loadStandings(weekNum);
     } catch (e) {
       setError(getErrorMessage(e, "Failed to load Pick'em"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadStandings]);
 
   useEffect(() => {
     void loadWeek(null);
   }, [loadWeek]);
 
-  // Refresh odds/status every 2 minutes without touching in-progress picks.
+  // Refresh odds/status + standings every 2 minutes without touching picks.
   useEffect(() => {
     if (week === null) return;
     const id = setInterval(() => {
@@ -86,15 +141,17 @@ export default function PickemPage() {
         .then((r) => (r.ok ? r.json() : null))
         .then((s) => { if (s) setSchedule(s as NflWeek); })
         .catch(() => {});
+      void loadStandings(week);
     }, 120_000);
     return () => clearInterval(id);
-  }, [week]);
+  }, [week, loadStandings]);
 
   const games = schedule?.games ?? [];
   const maxConfidence = schedule?.game_count ?? 0;
+  const gameById = useMemo(() => new Map(games.map((g) => [g.game_id, g])), [games]);
 
   const usedConfidences = useMemo(() => {
-    const used = new Map<number, string>(); // confidence -> game_id
+    const used = new Map<number, string>();
     for (const [gid, p] of Object.entries(picks) as Array<[string, LocalPick]>) {
       if (p.confidence !== null) used.set(p.confidence, gid);
     }
@@ -102,11 +159,33 @@ export default function PickemPage() {
   }, [picks]);
 
   const pickedCount = Object.keys(picks).length;
-  const missingConfidence = (Object.values(picks) as LocalPick[]).filter((p) => p.confidence === null).length;
+  const missingConfidence = (Object.values(picks) as LocalPick[]).filter(
+    (p) => p.confidence === null,
+  ).length;
   const unlockedGameIds = useMemo(
     () => new Set(games.filter((g) => !g.locked).map((g) => g.game_id)),
     [games],
   );
+
+  const parlayEntries = useMemo(
+    () => (Object.entries(picks) as Array<[string, LocalPick]>).filter(([, p]) => p.parlay),
+    [picks],
+  );
+  const parlayInfo = useMemo(() => {
+    if (parlayEntries.length === 0) return null;
+    let stake = 0;
+    let combined = 1;
+    let missingLine = false;
+    const legs = parlayEntries.map(([gid, p]) => {
+      const game = gameById.get(gid);
+      const ml = game ? teamMl(game, p.team) : null;
+      if (ml === null) missingLine = true;
+      else combined *= amToDec(ml);
+      stake += p.confidence ?? 0;
+      return { gid, team: p.team, confidence: p.confidence, ml };
+    });
+    return { legs, stake, combined, missingLine };
+  }, [parlayEntries, gameById]);
 
   function toggleTeam(game: NflGame, team: string) {
     if (game.locked) return;
@@ -116,7 +195,13 @@ export default function PickemPage() {
       const existing = cur[game.game_id];
       const next = { ...cur };
       if (existing?.team === team) delete next[game.game_id];
-      else next[game.game_id] = { team, confidence: existing?.confidence ?? null };
+      else
+        next[game.game_id] = {
+          team,
+          confidence: existing?.confidence ?? null,
+          bet: false,
+          parlay: existing?.parlay ?? false,
+        };
       return next;
     });
   }
@@ -131,6 +216,27 @@ export default function PickemPage() {
     });
   }
 
+  function toggleBet(gameId: string) {
+    setDirty(true);
+    setSavedAt(null);
+    setPicks((cur) => {
+      const existing = cur[gameId];
+      if (!existing) return cur;
+      return { ...cur, [gameId]: { ...existing, bet: !existing.bet, parlay: false } };
+    });
+  }
+
+  function toggleParlay(gameId: string) {
+    setDirty(true);
+    setSavedAt(null);
+    setPicks((cur) => {
+      const existing = cur[gameId];
+      if (!existing) return cur;
+      if (!existing.parlay && parlayEntries.length >= 3) return cur; // cap 3 legs
+      return { ...cur, [gameId]: { ...existing, parlay: !existing.parlay, bet: false } };
+    });
+  }
+
   async function save() {
     if (saving) return;
     setSaving(true);
@@ -138,7 +244,13 @@ export default function PickemPage() {
     try {
       const payload = (Object.entries(picks) as Array<[string, LocalPick]>)
         .filter(([gid, p]) => unlockedGameIds.has(gid) && p.confidence !== null)
-        .map(([gid, p]) => ({ game_id: gid, picked_team: p.team, confidence: p.confidence }));
+        .map(([gid, p]) => ({
+          game_id: gid,
+          picked_team: p.team,
+          confidence: p.confidence,
+          is_bet: p.bet,
+          parlay: p.parlay,
+        }));
       const res = await fetch("/api/nfl/picks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,6 +260,7 @@ export default function PickemPage() {
       if (!res.ok) throw new Error(json?.error ?? "Failed to save picks");
       setDirty(false);
       setSavedAt(new Date());
+      if (week !== null) void loadStandings(week);
     } catch (e) {
       setError(getErrorMessage(e, "Failed to save picks"));
     } finally {
@@ -166,10 +279,12 @@ export default function PickemPage() {
     return map;
   }, [revealed]);
 
+  const parlayIncomplete = parlayEntries.length === 1;
+
   return (
     <AppShell
       title="NFL Pick'em"
-      subtitle="Pick every winner · rank your confidence · byes shrink the scale"
+      subtitle="Pick winners · rank confidence · bet points at the line · parlay up to 3"
     >
       <div className="space-y-4 pb-24">
         {/* Week selector */}
@@ -209,43 +324,77 @@ export default function PickemPage() {
                   {pickedCount}/{games.length} picked
                 </span>
                 {missingConfidence > 0 && (
-                  <span style={{ color: "#f59e0b" }}> · {missingConfidence} need a confidence #</span>
+                  <span style={{ color: AMBER }}> · {missingConfidence} need a confidence #</span>
                 )}
-                {!dirty && savedAt && (
-                  <span style={{ color: "#22c55e" }}> · saved ✓</span>
-                )}
+                {parlayIncomplete && <span style={{ color: AMBER }}> · parlay needs 2-3 legs</span>}
+                {!dirty && savedAt && <span style={{ color: GREEN }}> · saved ✓</span>}
                 <span className="block sm:inline sm:before:content-['_·_']">
-                  scale 1–{maxConfidence} this week
+                  scale 1–{maxConfidence}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => void save()}
-                disabled={saving || !dirty || missingConfidence > 0}
+                disabled={saving || !dirty || missingConfidence > 0 || parlayIncomplete}
                 className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-black disabled:opacity-40"
               >
                 {saving ? "Saving…" : "Save picks"}
               </button>
             </div>
 
+            {/* Parlay slip */}
+            {parlayInfo && (
+              <div className="soft-card rounded-2xl border border-accent/40 bg-accent/5 px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-accent">
+                    🎰 Parlay · {parlayInfo.legs.length} leg{parlayInfo.legs.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="text-xs tabular-nums text-muted">
+                    {parlayInfo.missingLine
+                      ? "waiting on a line"
+                      : `${parlayInfo.combined.toFixed(2)}x combined`}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text">
+                  {parlayInfo.legs.map((l) => (
+                    <span key={l.gid}>
+                      {l.team}
+                      <span className="text-muted">
+                        {" "}({l.confidence ?? "—"}{l.ml !== null ? ` · ${mlLabel(l.ml)}` : ""})
+                      </span>
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-1.5 text-[11px] text-muted">
+                  Stake <span className="font-semibold text-text">{parlayInfo.stake}</span> pts →
+                  all legs win:{" "}
+                  <span className="font-semibold" style={{ color: GREEN }}>
+                    +{parlayInfo.missingLine ? "?" : Math.round(parlayInfo.stake * parlayInfo.combined)}
+                  </span>{" "}
+                  · any leg loses:{" "}
+                  <span className="font-semibold text-danger">-{parlayInfo.stake}</span>
+                  {parlayIncomplete && <span style={{ color: AMBER }}> · add 1-2 more legs</span>}
+                </div>
+              </div>
+            )}
+
             {/* Games */}
             <div className="space-y-3">
-              {games.map((game) => {
-                const pick = picks[game.game_id];
-                const reveals = revealedByGame.get(game.game_id) ?? [];
-                return (
-                  <GameCard
-                    key={game.game_id}
-                    game={game}
-                    pick={pick}
-                    maxConfidence={maxConfidence}
-                    usedConfidences={usedConfidences}
-                    reveals={reveals}
-                    onPick={(team) => toggleTeam(game, team)}
-                    onConfidence={(v) => setConfidence(game.game_id, v)}
-                  />
-                );
-              })}
+              {games.map((game) => (
+                <GameCard
+                  key={game.game_id}
+                  game={game}
+                  pick={picks[game.game_id]}
+                  maxConfidence={maxConfidence}
+                  usedConfidences={usedConfidences}
+                  reveals={revealedByGame.get(game.game_id) ?? []}
+                  parlayFull={parlayEntries.length >= 3}
+                  onPick={(team) => toggleTeam(game, team)}
+                  onConfidence={(v) => setConfidence(game.game_id, v)}
+                  onToggleBet={() => toggleBet(game.game_id)}
+                  onToggleParlay={() => toggleParlay(game.game_id)}
+                />
+              ))}
               {games.length === 0 && (
                 <div className="rounded-[1.5rem] border border-border/30 bg-surface/40 p-6 text-sm text-muted">
                   No games found for this week.
@@ -253,13 +402,83 @@ export default function PickemPage() {
               )}
             </div>
 
+            {/* Week standings */}
+            {standings.length > 0 && (
+              <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/50 p-4">
+                <div className="text-[11px] uppercase tracking-[0.28em] text-muted">
+                  Week {week} standings
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="mt-2 w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
+                        <th className="py-1 pr-2 font-medium">#</th>
+                        <th className="py-1 pr-2 font-medium">Player</th>
+                        <th className="py-1 pr-2 text-right font-medium">W-L</th>
+                        <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Str</th>
+                        <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Bets</th>
+                        <th className="py-1 pr-2 text-right font-medium">Parlay</th>
+                        <th className="py-1 text-right font-medium">Pts</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {standings.map((row, i) => (
+                        <tr key={row.entrant_id} className="border-t border-border/15">
+                          <td className="py-1.5 pr-2 text-muted">{i + 1}</td>
+                          <td className="py-1.5 pr-2 font-semibold text-text">{row.display_name}</td>
+                          <td className="py-1.5 pr-2 text-right tabular-nums text-muted">
+                            {row.correct}-{row.finals_played - row.correct}
+                          </td>
+                          <td className="hidden py-1.5 pr-2 text-right tabular-nums text-muted sm:table-cell">
+                            {row.straight_points}
+                          </td>
+                          <td className="hidden py-1.5 pr-2 text-right tabular-nums sm:table-cell">
+                            {row.bet_points !== 0 ? (
+                              <span
+                                className={row.bet_points < 0 ? "text-danger" : ""}
+                                style={row.bet_points > 0 ? { color: GREEN } : undefined}
+                              >
+                                {row.bet_points > 0 ? "+" : ""}{row.bet_points}
+                              </span>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-2 text-right text-xs tabular-nums">
+                            {row.parlay ? (
+                              row.parlay.status === "won" ? (
+                                <span style={{ color: GREEN }}>+{row.parlay.points}</span>
+                              ) : row.parlay.status === "busted" ? (
+                                <span className="text-danger">{row.parlay.points}</span>
+                              ) : (
+                                <span style={{ color: AMBER }}>
+                                  {row.parlay.legs} legs · {row.parlay.combined_decimal.toFixed(2)}x
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 text-right text-base font-bold tabular-nums text-info">
+                            {row.total}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-[10px] text-muted">
+                  Straight: win = +confidence. Bet 💰: win = confidence × odds, loss = −confidence.
+                  Parlay 🎰: all legs must win for stake × combined odds; one loss busts the stake.
+                  Ties push. Only final games count.
+                </p>
+              </section>
+            )}
+
             <p className="text-[11px] text-muted">
-              Lines{schedule?.games.find((g) => g.odds?.provider)?.odds?.provider
-                ? ` from ${schedule.games.find((g) => g.odds?.provider)!.odds!.provider}`
-                : ""}{" "}
-              via ESPN, refreshed every few minutes. Win % is the vig-removed implied probability
-              from the moneylines. Picks lock at kickoff, game by game; everyone&rsquo;s picks reveal
-              once a game kicks off.
+              Lines via ESPN, refreshed every few minutes. Win % is the vig-removed implied
+              probability from the moneylines. Bet & parlay odds lock in when you save. Picks lock
+              at kickoff; everyone&rsquo;s picks reveal per game once it kicks off.
             </p>
           </>
         )}
@@ -319,18 +538,26 @@ function TeamButton({
 }
 
 function GameCard({
-  game, pick, maxConfidence, usedConfidences, reveals, onPick, onConfidence,
+  game, pick, maxConfidence, usedConfidences, reveals, parlayFull,
+  onPick, onConfidence, onToggleBet, onToggleParlay,
 }: {
   game: NflGame;
   pick: LocalPick | undefined;
   maxConfidence: number;
   usedConfidences: Map<number, string>;
   reveals: RevealedPick[];
+  parlayFull: boolean;
   onPick: (team: string) => void;
   onConfidence: (v: number | null) => void;
+  onToggleBet: () => void;
+  onToggleParlay: () => void;
 }) {
   const awayProb = game.away_win_prob;
   const homeProb = game.home_win_prob;
+  const pickMl = pick ? teamMl(game, pick.team) : null;
+  const pickDec = pickMl !== null ? amToDec(pickMl) : null;
+  const betPayout =
+    pick?.confidence != null && pickDec !== null ? Math.round(pick.confidence * pickDec) : null;
 
   return (
     <section className="soft-card rounded-[1.25rem] border border-border/40 bg-surface/50 p-3">
@@ -346,7 +573,9 @@ function GameCard({
             <span className="tabular-nums">O/U {game.odds.over_under}</span>
           )}
           {game.locked && (
-            <span className={`font-bold uppercase ${game.state === "post" ? "text-muted" : "text-[#f59e0b]"}`}>
+            <span
+              className={`font-bold uppercase ${game.state === "post" ? "text-muted" : "text-[#f59e0b]"}`}
+            >
               {game.state === "post" ? "Final" : game.state === "in" ? game.status_detail || "Live" : "Locked"}
             </span>
           )}
@@ -391,47 +620,88 @@ function GameCard({
         </div>
       )}
 
-      {/* Confidence assignment */}
+      {/* Confidence + wager controls */}
       {pick && !game.locked && (
-        <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl border border-border/40 bg-bg/40 px-3 py-2">
-          <span className="text-xs text-muted">
-            Confidence in <span className="font-semibold text-text">{pick.team}</span>
-          </span>
-          <select
-            value={pick.confidence ?? ""}
-            onChange={(e) => onConfidence(e.target.value === "" ? null : Number(e.target.value))}
-            className="rounded-lg border border-border/60 bg-surface px-2 py-1.5 text-sm font-semibold text-text"
-            aria-label={`Confidence points for ${pick.team}`}
-          >
-            <option value="">—</option>
-            {Array.from({ length: maxConfidence }, (_, i) => i + 1)
-              .reverse()
-              .map((n) => {
-                const usedBy = usedConfidences.get(n);
-                const taken = usedBy !== undefined && usedBy !== game.game_id;
-                return (
-                  <option key={n} value={n} disabled={taken}>
-                    {n}{taken ? " ·used" : ""}
-                  </option>
-                );
-              })}
-          </select>
+        <div className="mt-2.5 space-y-2 rounded-xl border border-border/40 bg-bg/40 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-muted">
+              Confidence in <span className="font-semibold text-text">{pick.team}</span>
+            </span>
+            <select
+              value={pick.confidence ?? ""}
+              onChange={(e) => onConfidence(e.target.value === "" ? null : Number(e.target.value))}
+              className="rounded-lg border border-border/60 bg-surface px-2 py-1.5 text-sm font-semibold text-text"
+              aria-label={`Confidence points for ${pick.team}`}
+            >
+              <option value="">—</option>
+              {Array.from({ length: maxConfidence }, (_, i) => i + 1)
+                .reverse()
+                .map((n) => {
+                  const usedBy = usedConfidences.get(n);
+                  const taken = usedBy !== undefined && usedBy !== game.game_id;
+                  return (
+                    <option key={n} value={n} disabled={taken}>
+                      {n}{taken ? " ·used" : ""}
+                    </option>
+                  );
+                })}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onToggleBet}
+              disabled={pickDec === null}
+              aria-pressed={pick.bet}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-40 ${
+                pick.bet
+                  ? "border-transparent bg-[#22c55e]/20 text-[#22c55e]"
+                  : "border-border/50 text-muted"
+              }`}
+            >
+              💰 Bet it{pick.bet && betPayout !== null ? ` · win +${betPayout}` : ""}
+            </button>
+            <button
+              type="button"
+              onClick={onToggleParlay}
+              disabled={pickDec === null || (!pick.parlay && parlayFull)}
+              aria-pressed={pick.parlay}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-40 ${
+                pick.parlay
+                  ? "border-transparent bg-accent/20 text-accent"
+                  : "border-border/50 text-muted"
+              }`}
+            >
+              🎰 Parlay leg
+            </button>
+            {pick.bet && pick.confidence != null && (
+              <span className="text-[10px] text-muted">
+                risk <span className="text-danger">-{pick.confidence}</span> on a loss
+              </span>
+            )}
+            {pickDec === null && (
+              <span className="text-[10px] text-muted">no line yet — betting unavailable</span>
+            )}
+          </div>
         </div>
       )}
 
       {/* Revealed picks after kickoff */}
-      {game.locked && reveals.length > 0 && (
+      {game.locked && (reveals.length > 0 || pick) && (
         <div className="mt-2.5 rounded-xl border border-border/30 bg-bg/30 px-3 py-2">
           <div className="text-[10px] uppercase tracking-wider text-muted">Picks</div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
             {pick && (
               <span className="text-text">
                 <span className="font-semibold">You</span>: {pick.team} ({pick.confidence ?? "—"})
+                {pick.bet ? " 💰" : ""}{pick.parlay ? " 🎰" : ""}
               </span>
             )}
             {reveals.map((r) => (
               <span key={`${r.game_id}-${r.display_name}`} className="text-muted">
                 {r.display_name}: {r.picked_team} ({r.confidence})
+                {r.is_bet ? " 💰" : ""}{r.parlay_group !== null ? " 🎰" : ""}
               </span>
             ))}
           </div>
