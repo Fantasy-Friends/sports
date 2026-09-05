@@ -4,9 +4,8 @@ import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
 import { currentNflSeason, fetchNflWeek } from "@/lib/nfl";
 import {
-  americanToDecimal,
   canonicalEntrantId,
-  moneylineFor,
+  decimalFor,
   seasonDisplayNames,
   type PickRow,
 } from "@/lib/nflPickem";
@@ -144,17 +143,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `duplicate pick for ${gameId}` }, { status: 400 });
       }
 
-      // Bets and parlay legs need a live moneyline to snapshot.
+      // Bets and parlay legs snapshot the payout decimal (real ML, or the
+      // fair spread-derived odds when no ML is posted yet).
       let betDecimal: number | null = null;
       if (isBet || isParlay) {
-        const ml = moneylineFor(game, team);
-        if (ml === null) {
+        const dec = decimalFor(game, team);
+        if (dec === null) {
           return NextResponse.json(
-            { error: `no moneyline available to bet on ${team} yet` },
+            { error: `no line available to bet on ${team} yet` },
             { status: 400 },
           );
         }
-        betDecimal = Number(americanToDecimal(ml).toFixed(4));
+        betDecimal = Number(dec.toFixed(4));
       }
       if (isParlay) parlayLegs += 1;
 

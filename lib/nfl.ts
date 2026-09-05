@@ -19,6 +19,9 @@ export type NflOdds = {
   over_under: number | null;
   home_ml: number | null;      // American moneyline
   away_ml: number | null;
+  home_dec: number | null;     // decimal payout odds (real ML, or fair odds
+  away_dec: number | null;     //   derived from the spread when ML is absent)
+  derived: boolean;            // true when decimals came from the spread
   provider: string | null;
 };
 
@@ -107,13 +110,32 @@ function normalizeEvent(event: any, nowMs: number): NflGame | null {
         details: typeof oddsRaw.details === "string" ? oddsRaw.details : null,
         spread: num(oddsRaw.spread),
         over_under: num(oddsRaw.overUnder),
-        home_ml: num(oddsRaw.homeTeamOdds?.moneyLine),
-        away_ml: num(oddsRaw.awayTeamOdds?.moneyLine),
+        home_ml: num(oddsRaw.homeTeamOdds?.moneyLine ?? oddsRaw.homeTeamOdds?.moneyline),
+        away_ml: num(oddsRaw.awayTeamOdds?.moneyLine ?? oddsRaw.awayTeamOdds?.moneyline),
+        home_dec: null,
+        away_dec: null,
+        derived: false,
         provider: typeof oddsRaw.provider?.name === "string" ? oddsRaw.provider.name : null,
       }
     : null;
 
   const homeProb = homeWinProbability(odds);
+
+  // Payout decimals: real moneylines when posted; otherwise fair (no-vig)
+  // odds derived from the spread probability, so betting works as soon as
+  // ESPN has any line at all. Capped to keep derived odds sane.
+  if (odds) {
+    const capDec = (d: number) => Math.round(Math.min(15, Math.max(1.05, d)) * 100) / 100;
+    if (odds.home_ml !== null && odds.away_ml !== null) {
+      const toDec = (ml: number) => (ml > 0 ? 1 + ml / 100 : 1 + 100 / -ml);
+      odds.home_dec = capDec(toDec(odds.home_ml));
+      odds.away_dec = capDec(toDec(odds.away_ml));
+    } else if (homeProb !== null && homeProb > 0 && homeProb < 100) {
+      odds.home_dec = capDec(100 / homeProb);
+      odds.away_dec = capDec(100 / (100 - homeProb));
+      odds.derived = true;
+    }
+  }
 
   return {
     game_id: String(event.id),

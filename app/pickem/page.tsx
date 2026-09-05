@@ -58,15 +58,19 @@ function mlLabel(ml: number | null): string {
   return ml > 0 ? `+${ml}` : String(ml);
 }
 
-function amToDec(ml: number): number {
-  return ml > 0 ? 1 + ml / 100 : 1 + 100 / -ml;
+function teamDec(game: NflGame, team: string): number | null {
+  if (!game.odds) return null;
+  if (team === game.home.abbr) return game.odds.home_dec;
+  if (team === game.away.abbr) return game.odds.away_dec;
+  return null;
 }
 
-function teamMl(game: NflGame, team: string): number | null {
-  if (!game.odds) return null;
-  if (team === game.home.abbr) return game.odds.home_ml;
-  if (team === game.away.abbr) return game.odds.away_ml;
-  return null;
+// Line label under a team: real moneyline when posted, else the fair
+// spread-derived payout multiple.
+function lineLabel(ml: number | null, dec: number | null): string {
+  if (ml !== null) return `ML ${mlLabel(ml)}`;
+  if (dec !== null) return `${dec.toFixed(2)}x`;
+  return "";
 }
 
 export default function PickemPage() {
@@ -178,11 +182,11 @@ export default function PickemPage() {
     let missingLine = false;
     const legs = parlayEntries.map(([gid, p]) => {
       const game = gameById.get(gid);
-      const ml = game ? teamMl(game, p.team) : null;
-      if (ml === null) missingLine = true;
-      else combined *= amToDec(ml);
+      const dec = game ? teamDec(game, p.team) : null;
+      if (dec === null) missingLine = true;
+      else combined *= dec;
       stake += p.confidence ?? 0;
-      return { gid, team: p.team, confidence: p.confidence, ml };
+      return { gid, team: p.team, confidence: p.confidence, dec };
     });
     return { legs, stake, combined, missingLine };
   }, [parlayEntries, gameById]);
@@ -360,7 +364,7 @@ export default function PickemPage() {
                     <span key={l.gid}>
                       {l.team}
                       <span className="text-muted">
-                        {" "}({l.confidence ?? "—"}{l.ml !== null ? ` · ${mlLabel(l.ml)}` : ""})
+                        {" "}({l.confidence ?? "—"}{l.dec !== null ? ` · ${l.dec.toFixed(2)}x` : ""})
                       </span>
                     </span>
                   ))}
@@ -527,7 +531,7 @@ function TeamButton({
         </span>
         <span className="block text-[11px] text-muted">
           {side.record ?? ""}
-          {ml && <span className="tabular-nums"> · ML {ml}</span>}
+          {ml && <span className="tabular-nums"> · {ml}</span>}
         </span>
       </span>
       {side.score !== null && (
@@ -554,8 +558,7 @@ function GameCard({
 }) {
   const awayProb = game.away_win_prob;
   const homeProb = game.home_win_prob;
-  const pickMl = pick ? teamMl(game, pick.team) : null;
-  const pickDec = pickMl !== null ? amToDec(pickMl) : null;
+  const pickDec = pick ? teamDec(game, pick.team) : null;
   const betPayout =
     pick?.confidence != null && pickDec !== null ? Math.round(pick.confidence * pickDec) : null;
 
@@ -585,7 +588,7 @@ function GameCard({
       <div className="flex items-stretch gap-2">
         <TeamButton
           side={game.away}
-          ml={mlLabel(game.odds?.away_ml ?? null)}
+          ml={lineLabel(game.odds?.away_ml ?? null, game.odds?.away_dec ?? null)}
           selected={pick?.team === game.away.abbr}
           locked={game.locked}
           winner={game.away.winner}
@@ -594,7 +597,7 @@ function GameCard({
         <span className="self-center text-[10px] font-semibold text-muted">@</span>
         <TeamButton
           side={game.home}
-          ml={mlLabel(game.odds?.home_ml ?? null)}
+          ml={lineLabel(game.odds?.home_ml ?? null, game.odds?.home_dec ?? null)}
           selected={pick?.team === game.home.abbr}
           locked={game.locked}
           winner={game.home.winner}

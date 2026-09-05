@@ -21,10 +21,12 @@ export function americanToDecimal(ml: number): number {
   return ml > 0 ? 1 + ml / 100 : 1 + 100 / -ml;
 }
 
-export function moneylineFor(game: NflGame, team: string): number | null {
+// The decimal payout odds for a team: real ML when posted, else the fair
+// spread-derived decimal computed in lib/nfl.ts (null only with no line).
+export function decimalFor(game: NflGame, team: string): number | null {
   if (!game.odds) return null;
-  if (team === game.home.abbr) return game.odds.home_ml;
-  if (team === game.away.abbr) return game.odds.away_ml;
+  if (team === game.home.abbr) return game.odds.home_dec;
+  if (team === game.away.abbr) return game.odds.away_dec;
   return null;
 }
 
