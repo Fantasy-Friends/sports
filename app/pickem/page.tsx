@@ -480,9 +480,18 @@ export default function PickemPage() {
             )}
 
             <p className="text-[11px] text-muted">
-              Lines via ESPN, refreshed every few minutes. Win % is the vig-removed implied
-              probability from the moneylines. Bet & parlay odds lock in when you save. Picks lock
-              at kickoff; everyone&rsquo;s picks reveal per game once it kicks off.
+              Lines via ESPN
+              {schedule?.fetched_at
+                ? ` · last updated ${new Date(schedule.fetched_at).toLocaleString(undefined, {
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+              , refreshed every few minutes. Win % is the vig-removed implied probability from the
+              moneylines. Bet & parlay odds lock in when you save. Picks lock at kickoff;
+              everyone&rsquo;s picks reveal per game once it kicks off.
             </p>
           </>
         )}

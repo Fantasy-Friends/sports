@@ -43,6 +43,7 @@ export type NflWeek = {
   week: number;
   games: NflGame[];
   game_count: number;          // = the confidence scale max for the week
+  fetched_at: string;          // ISO — when this data was pulled from ESPN
 };
 
 // NFL season year: Jan/Feb games belong to the prior season's playoffs.
@@ -186,6 +187,7 @@ export async function fetchNflWeek(week?: number, season?: number): Promise<NflW
     week: week ?? json.week?.number ?? 1,
     games,
     game_count: games.length,
+    fetched_at: new Date(nowMs).toISOString(),
   };
   cache.set(key, { at: nowMs, data });
   // Also cache under the resolved week number so "current" and explicit
