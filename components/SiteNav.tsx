@@ -5,14 +5,16 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "@/components/ThemeToggle";
 
+// Draft / Player Leaderboard / Tournament Leaderboard / Lottery are intentionally
+// omitted here — the pages still work by direct URL (e.g. /draft, /leaderboard,
+// /tournament, /lottery), they're just hidden from the nav while the season is
+// centered on NFL Pick'em and the MLB Playoffs. Re-add them to restore the tabs.
 const NAV_ITEMS = [
   { href: "/", label: "Home" },
+  { href: "/pickem", label: "Pick'em" },
   { href: "/season/2026", label: "Season" },
   { href: "/calendar", label: "Calendar" },
   { href: "/hot-seat", label: "Hot Seat" },
-  { href: "/draft", label: "Draft" },
-  { href: "/leaderboard", label: "Player Leaderboard" },
-  { href: "/tournament", label: "Tournament Leaderboard" },
   { href: "/preferences", label: "Notifications" },
   { href: "/admin", label: "Admin" },
   { href: "/ux", label: "Design Lab" },

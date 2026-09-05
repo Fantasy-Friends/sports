@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
+import PickemHero from "@/components/PickemHero";
 import { initialsFor, tintFor } from "@/lib/avatarTint";
 import { getCurrentTournamentSlug } from "@/lib/tournaments";
 
@@ -175,6 +176,23 @@ function HomeContent() {
 
   const liveEvent = useMemo(() => events.find((e) => e.status === "live") ?? null, [events]);
 
+  // Are we inside NFL Pick'em season? Date-gated off the weekly pickem events so
+  // the Pick'em hero shows automatically Sept–Jan and disappears afterward. The
+  // exact "current week" is resolved live from ESPN inside <PickemHero />, so no
+  // manual status flip in Supabase is needed. Takes priority over the golf hero.
+  const pickemInSeason = useMemo(() => {
+    const weeks = events
+      .filter((e) => e.event_type === "pickem-ats" && e.starts_at)
+      .map((e) => new Date(e.starts_at!).getTime())
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => a - b);
+    if (weeks.length === 0) return false;
+    const now = Date.now();
+    const opensAt = weeks[0] - 7 * 864e5; // ~a week before Week 1 (lines are up)
+    const closesAt = weeks[weeks.length - 1] + 10 * 864e5; // ~10 days after final week's start
+    return now >= opensAt && now <= closesAt;
+  }, [events]);
+
   const HERO_EVENT_SLUG = useMemo(
     () => GOLF_EVENT_SLUG_BY_TOURNAMENT[getCurrentTournamentSlug()] ?? "2026-us-open-golf",
     [],
@@ -193,6 +211,7 @@ function HomeContent() {
     () =>
       events
         .filter((e) => COMING_SOON_SLUGS.has(e.slug))
+        .filter((e) => e.status !== "final") // drop events that have been closed out
         .sort((a, b) => a.name.localeCompare(b.name)),
     [events, COMING_SOON_SLUGS],
   );
@@ -233,7 +252,9 @@ function HomeContent() {
 
   return (
     <div className="space-y-4">
-      {featuredEvent ? (
+      {pickemInSeason ? (
+        <PickemHero />
+      ) : featuredEvent ? (
         <section
           className="relative overflow-hidden rounded-[1.75rem] border border-[#1e3a8a]/50 text-white"
           style={{

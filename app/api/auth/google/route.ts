@@ -1,7 +1,6 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
-
-export const GOOGLE_OAUTH_STATE_COOKIE = "google_oauth_state";
+import { GOOGLE_OAUTH_STATE_COOKIE } from "./stateCookie";
 
 export async function GET(request: Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID;

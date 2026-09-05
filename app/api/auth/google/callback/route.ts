@@ -5,7 +5,7 @@ import {
   DRAFT_SESSION_COOKIE,
   getEntrantByEmail,
 } from "@/lib/draftAuth";
-import { GOOGLE_OAUTH_STATE_COOKIE } from "../route";
+import { GOOGLE_OAUTH_STATE_COOKIE } from "../stateCookie";
 
 const GOOGLE_PENDING_EMAIL_COOKIE = "google_pending_email";
 
