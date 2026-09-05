@@ -90,6 +90,7 @@ const NAV_ITEMS = [
   { href: "/lottery",             label: "Lottery" },
   { href: "/hot-seat",            label: "Hot Seat" },
   { href: "/draft",               label: "Draft" },
+  { href: "/pickem",              label: "NFL Pick'em" },
   { href: "/leaderboard",         label: "Player Leaderboard" },
   { href: "/tournament",          label: "Tournament Leaderboard" },
   { href: "/preferences",         label: "Notifications" },
