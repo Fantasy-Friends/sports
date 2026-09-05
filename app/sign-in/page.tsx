@@ -105,6 +105,15 @@ function SignInPageContent() {
               Sign in with Google
             </a>
           </div>
+
+          {process.env.NODE_ENV !== "production" && (
+            <a
+              href={`/api/dev/login?returnTo=${encodeURIComponent(returnTo)}`}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 bg-surface/40 px-4 py-2.5 text-xs font-semibold text-muted transition-colors hover:bg-surface/70"
+            >
+              Dev sign-in (localhost only) →
+            </a>
+          )}
         </div>
       </section>
     </main>

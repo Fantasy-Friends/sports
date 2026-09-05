@@ -86,7 +86,60 @@ export default async function CalendarPage() {
       ).data ?? []) as EventRow[]
     : [];
 
-  const entries = groupEvents(events);
+  // Winners for past events come from event_finishes: the top-ranked finisher(s)
+  // for each event (ties share the minimum finish_rank, e.g. a 2-way tie is 1.5).
+  const eventIds = events.map((e) => e.event_id);
+  const { data: finishes } = eventIds.length
+    ? await supabaseAdmin
+        .from("event_finishes")
+        .select("event_id, entrant_id, finish_rank")
+        .in("event_id", eventIds)
+    : { data: [] as Array<{ event_id: string; entrant_id: string; finish_rank: number }> };
+
+  const finisherEntrantIds = [...new Set((finishes ?? []).map((f) => f.entrant_id))];
+  const { data: finisherEntrants } = finisherEntrantIds.length
+    ? await supabaseAdmin
+        .from("draft_entrants")
+        .select("entrant_id, entrant_name")
+        .in("entrant_id", finisherEntrantIds)
+    : { data: [] as Array<{ entrant_id: string; entrant_name: string }> };
+
+  const nameById = new Map(
+    (finisherEntrants ?? []).map((e) => [e.entrant_id, e.entrant_name]),
+  );
+
+  const finishesByEvent = new Map<string, Array<{ rank: number; name: string }>>();
+  for (const f of finishes ?? []) {
+    const list = finishesByEvent.get(f.event_id) ?? [];
+    list.push({ rank: Number(f.finish_rank), name: nameById.get(f.entrant_id) ?? "Player" });
+    finishesByEvent.set(f.event_id, list);
+  }
+
+  // event_id → winner name(s). An event "has a winner" iff it has any finishes.
+  const winnersByEvent = new Map<string, string[]>();
+  for (const [eid, list] of finishesByEvent) {
+    const min = Math.min(...list.map((x) => x.rank));
+    winnersByEvent.set(eid, list.filter((x) => x.rank === min).map((x) => x.name));
+  }
+
+  // Calendar filter (view only — no rows are deleted):
+  //   • the NFL weekly-picks group (this season's core) always stays,
+  //   • past singletons stay only if they have a winner to show,
+  //   • future singletons stay only if they're the MLB Playoffs bracket.
+  // Everything else (empty past events, other future one-offs) is hidden.
+  const MLB_PLAYOFFS_SLUG = "2026-mlb-playoffs-bracket";
+  const now = Date.now();
+  const isPast = (ev: EventRow) => {
+    const t = new Date(ev.ends_at ?? ev.starts_at ?? "").getTime();
+    return Number.isFinite(t) && t < now;
+  };
+  const visibleEvents = events.filter((ev) => {
+    if (ev.group_key === "nfl-weekly-picks") return true;
+    if (isPast(ev)) return winnersByEvent.has(ev.event_id);
+    return ev.slug === MLB_PLAYOFFS_SLUG;
+  });
+
+  const entries = groupEvents(visibleEvents);
 
   return (
     <AppShell
@@ -139,6 +192,12 @@ export default async function CalendarPage() {
             const style = TIER_STYLE[ev.tier] ?? TIER_STYLE[1];
             const isLive = ev.status === "live";
             const isOpen = ev.status === "open-entry";
+            const winners = winnersByEvent.get(ev.event_id);
+            const winnerLabel = winners?.length
+              ? winners.length > 1
+                ? winners.join(" & ")
+                : winners[0]
+              : null;
             return (
               <Link
                 key={ev.event_id}
@@ -162,15 +221,23 @@ export default async function CalendarPage() {
                         ? "bg-accent text-white"
                         : isOpen
                           ? "bg-info/15 text-info"
-                          : "bg-surface/70 text-muted",
+                          : winnerLabel
+                            ? "bg-[#f5c11c]/20 text-[#a9791b]"
+                            : "bg-surface/70 text-muted",
                     ].join(" ")}
                   >
-                    {ev.status}
+                    {winnerLabel ? "Final" : ev.status}
                   </span>
                 </div>
                 <h2 className="mt-2 text-base font-semibold text-text sm:text-lg">{ev.name}</h2>
                 <p className="mt-1 text-xs text-muted">{formatRange(ev.starts_at, ev.ends_at)}</p>
-                <p className="mt-1 text-xs text-muted">{ev.event_type}</p>
+                {winnerLabel ? (
+                  <p className="mt-1 text-xs font-semibold text-text">
+                    🏆 {winners!.length > 1 ? "Winners" : "Winner"}: {winnerLabel}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted">{ev.event_type}</p>
+                )}
               </Link>
             );
           })}
