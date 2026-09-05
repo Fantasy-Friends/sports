@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { currentNflSeason, type NflGame } from "@/lib/nfl";
+import { currentNflSeason, fetchNflWeek, type NflGame } from "@/lib/nfl";
 
 // ─── Shared types ───────────────────────────────────────────────────────────
 
@@ -14,6 +14,41 @@ export type PickRow = {
   bet_decimal: number | null;
   parlay_group: number | null;
 };
+
+// ─── Featured scoreboard week ───────────────────────────────────────────────
+// The landing scoreboard keeps showing the just-played week's results through
+// Tuesday, then flips to the new week on WEDNESDAY (Central Time — the pool's
+// timezone). Independent of when ESPN rolls its "current week" pointer.
+
+export function chicagoWeekday(now = new Date()): number {
+  // 0=Sun … 6=Sat in America/Chicago
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "short",
+  }).format(now);
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+}
+
+export async function featuredScoreboardWeek(): Promise<number> {
+  const cur = await fetchNflWeek(); // ESPN's current week
+  if (cur.games.length === 0) return cur.week;
+  const nowMs = Date.now();
+  const dow = chicagoWeekday();
+  const beforeWednesday = dow === 0 || dow === 1 || dow === 2; // Sun/Mon/Tue
+  const firstKick = Math.min(...cur.games.map((g) => new Date(g.kickoff).getTime()));
+  const allFinal = cur.games.every((g) => g.state === "post");
+
+  let week = cur.week;
+  if (firstKick > nowMs) {
+    // ESPN already points at the upcoming week; hold last week's results
+    // until Wednesday.
+    if (beforeWednesday) week = cur.week - 1;
+  } else if (allFinal && !beforeWednesday) {
+    // ESPN hasn't rolled yet but the week is done and it's Wednesday+.
+    week = cur.week + 1;
+  }
+  return Math.max(1, Math.min(18, week));
+}
 
 // ─── Odds ───────────────────────────────────────────────────────────────────
 

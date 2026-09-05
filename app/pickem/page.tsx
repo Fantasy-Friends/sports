@@ -37,6 +37,23 @@ type StandingRow = {
   parlay: ParlaySummary | null;
 };
 
+type SeasonRow = {
+  entrant_id: string;
+  display_name: string;
+  total: number;
+  correct: number;
+  finals_played: number;
+  weeks_played: number;
+  weeks_won: number;
+  best_week: { week: number; points: number } | null;
+};
+
+type BoardData = {
+  featured_week: number;
+  weekly: StandingRow[];
+  season_rows: SeasonRow[];
+};
+
 const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
 const GREEN = "#22c55e";
 const AMBER = "#f59e0b";
@@ -78,21 +95,26 @@ export default function PickemPage() {
   const [schedule, setSchedule] = useState<NflWeek | null>(null);
   const [picks, setPicks] = useState<Record<string, LocalPick>>({});
   const [revealed, setRevealed] = useState<RevealedPick[]>([]);
-  const [standings, setStandings] = useState<StandingRow[]>([]);
+  const [tab, setTab] = useState<"board" | "picks">("board");
+  const [board, setBoard] = useState<BoardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const loadStandings = useCallback(async (w: number) => {
+  const loadBoard = useCallback(async () => {
     try {
-      const res = await fetch(`/api/nfl/scores?week=${w}`, { cache: "no-store" });
+      const res = await fetch("/api/nfl/season", { cache: "no-store" });
       if (!res.ok) return;
       const json = await res.json();
-      setStandings((json.standings ?? []) as StandingRow[]);
+      setBoard({
+        featured_week: json.featured_week ?? 1,
+        weekly: (json.weekly ?? []) as StandingRow[],
+        season_rows: (json.season_rows ?? []) as SeasonRow[],
+      });
     } catch {
-      /* standings are best-effort */
+      /* scoreboard is best-effort */
     }
   }, []);
 
@@ -125,13 +147,13 @@ export default function PickemPage() {
       setPicks(next);
       setRevealed((picksJson.revealed ?? []) as RevealedPick[]);
       setDirty(false);
-      void loadStandings(weekNum);
+      void loadBoard();
     } catch (e) {
       setError(getErrorMessage(e, "Failed to load Pick'em"));
     } finally {
       setLoading(false);
     }
-  }, [loadStandings]);
+  }, [loadBoard]);
 
   useEffect(() => {
     void loadWeek(null);
@@ -145,10 +167,10 @@ export default function PickemPage() {
         .then((r) => (r.ok ? r.json() : null))
         .then((s) => { if (s) setSchedule(s as NflWeek); })
         .catch(() => {});
-      void loadStandings(week);
+      void loadBoard();
     }, 120_000);
     return () => clearInterval(id);
-  }, [week, loadStandings]);
+  }, [week, loadBoard]);
 
   const games = schedule?.games ?? [];
   const maxConfidence = schedule?.game_count ?? 0;
@@ -264,7 +286,7 @@ export default function PickemPage() {
       if (!res.ok) throw new Error(json?.error ?? "Failed to save picks");
       setDirty(false);
       setSavedAt(new Date());
-      if (week !== null) void loadStandings(week);
+      void loadBoard();
     } catch (e) {
       setError(getErrorMessage(e, "Failed to save picks"));
     } finally {
@@ -291,6 +313,26 @@ export default function PickemPage() {
       subtitle="Pick winners · rank confidence · bet points at the line · parlay up to 3"
     >
       <div className="space-y-4 pb-24">
+        {/* Tabs */}
+        <div className="flex gap-1.5">
+          {(["board", "picks"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+                tab === t ? "bg-accent text-black" : "border border-border/60 text-muted hover:text-text"
+              }`}
+            >
+              {t === "board" ? "Scoreboard" : "Make Picks"}
+            </button>
+          ))}
+        </div>
+
+        {tab === "board" && <ScoreboardView board={board} />}
+
+        {tab === "picks" && (
+        <>
         {/* Week selector */}
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
           {WEEKS.map((w) => (
@@ -406,79 +448,6 @@ export default function PickemPage() {
               )}
             </div>
 
-            {/* Week standings */}
-            {standings.length > 0 && (
-              <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/50 p-4">
-                <div className="text-[11px] uppercase tracking-[0.28em] text-muted">
-                  Week {week} standings
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="mt-2 w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
-                        <th className="py-1 pr-2 font-medium">#</th>
-                        <th className="py-1 pr-2 font-medium">Player</th>
-                        <th className="py-1 pr-2 text-right font-medium">W-L</th>
-                        <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Str</th>
-                        <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Bets</th>
-                        <th className="py-1 pr-2 text-right font-medium">Parlay</th>
-                        <th className="py-1 text-right font-medium">Pts</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {standings.map((row, i) => (
-                        <tr key={row.entrant_id} className="border-t border-border/15">
-                          <td className="py-1.5 pr-2 text-muted">{i + 1}</td>
-                          <td className="py-1.5 pr-2 font-semibold text-text">{row.display_name}</td>
-                          <td className="py-1.5 pr-2 text-right tabular-nums text-muted">
-                            {row.correct}-{row.finals_played - row.correct}
-                          </td>
-                          <td className="hidden py-1.5 pr-2 text-right tabular-nums text-muted sm:table-cell">
-                            {row.straight_points}
-                          </td>
-                          <td className="hidden py-1.5 pr-2 text-right tabular-nums sm:table-cell">
-                            {row.bet_points !== 0 ? (
-                              <span
-                                className={row.bet_points < 0 ? "text-danger" : ""}
-                                style={row.bet_points > 0 ? { color: GREEN } : undefined}
-                              >
-                                {row.bet_points > 0 ? "+" : ""}{row.bet_points}
-                              </span>
-                            ) : (
-                              <span className="text-muted">—</span>
-                            )}
-                          </td>
-                          <td className="py-1.5 pr-2 text-right text-xs tabular-nums">
-                            {row.parlay ? (
-                              row.parlay.status === "won" ? (
-                                <span style={{ color: GREEN }}>+{row.parlay.points}</span>
-                              ) : row.parlay.status === "busted" ? (
-                                <span className="text-danger">{row.parlay.points}</span>
-                              ) : (
-                                <span style={{ color: AMBER }}>
-                                  {row.parlay.legs} legs · {row.parlay.combined_decimal.toFixed(2)}x
-                                </span>
-                              )
-                            ) : (
-                              <span className="text-muted">—</span>
-                            )}
-                          </td>
-                          <td className="py-1.5 text-right text-base font-bold tabular-nums text-info">
-                            {row.total}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="mt-2 text-[10px] text-muted">
-                  Straight: win = +confidence. Bet 💰: win = confidence × odds, loss = −confidence.
-                  Parlay 🎰: all legs must win for stake × combined odds; one loss busts the stake.
-                  Ties push. Only final games count.
-                </p>
-              </section>
-            )}
-
             <p className="text-[11px] text-muted">
               Lines via ESPN
               {schedule?.fetched_at
@@ -494,6 +463,8 @@ export default function PickemPage() {
               everyone&rsquo;s picks reveal per game once it kicks off.
             </p>
           </>
+        )}
+        </>
         )}
       </div>
     </AppShell>
@@ -720,5 +691,142 @@ function GameCard({
         </div>
       )}
     </section>
+  );
+}
+
+
+function ScoreboardView({ board }: { board: BoardData | null }) {
+  if (!board) {
+    return (
+      <div className="rounded-[1.5rem] border border-border/30 bg-surface/40 p-6 text-sm text-muted">
+        Loading scoreboard…
+      </div>
+    );
+  }
+  const { featured_week, weekly, season_rows } = board;
+  return (
+    <>
+      {/* Featured week scoreboard */}
+      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/50 p-4">
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="text-[11px] uppercase tracking-[0.28em] text-muted">
+            Week {featured_week} scoreboard
+          </div>
+          <span className="text-[10px] text-muted">flips to the new week on Wednesday</span>
+        </div>
+        {weekly.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">No picks in for week {featured_week} yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="mt-2 w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
+                  <th className="py-1 pr-2 font-medium">#</th>
+                  <th className="py-1 pr-2 font-medium">Player</th>
+                  <th className="py-1 pr-2 text-right font-medium">W-L</th>
+                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Str</th>
+                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Bets</th>
+                  <th className="py-1 pr-2 text-right font-medium">Parlay</th>
+                  <th className="py-1 text-right font-medium">Pts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weekly.map((row, i) => (
+                  <tr key={row.entrant_id} className="border-t border-border/15">
+                    <td className="py-1.5 pr-2 text-muted">{i + 1}</td>
+                    <td className="py-1.5 pr-2 font-semibold text-text">{row.display_name}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums text-muted">
+                      {row.correct}-{row.finals_played - row.correct}
+                    </td>
+                    <td className="hidden py-1.5 pr-2 text-right tabular-nums text-muted sm:table-cell">
+                      {row.straight_points}
+                    </td>
+                    <td className="hidden py-1.5 pr-2 text-right tabular-nums sm:table-cell">
+                      {row.bet_points !== 0 ? (
+                        <span
+                          className={row.bet_points < 0 ? "text-danger" : ""}
+                          style={row.bet_points > 0 ? { color: GREEN } : undefined}
+                        >
+                          {row.bet_points > 0 ? "+" : ""}{row.bet_points}
+                        </span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="py-1.5 pr-2 text-right text-xs tabular-nums">
+                      {row.parlay ? (
+                        row.parlay.status === "won" ? (
+                          <span style={{ color: GREEN }}>+{row.parlay.points}</span>
+                        ) : row.parlay.status === "busted" ? (
+                          <span className="text-danger">{row.parlay.points}</span>
+                        ) : (
+                          <span style={{ color: AMBER }}>
+                            {row.parlay.legs} legs · {row.parlay.combined_decimal.toFixed(2)}x
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="py-1.5 text-right text-base font-bold tabular-nums text-info">
+                      {row.total}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Season leaderboard */}
+      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/50 p-4">
+        <div className="text-[11px] uppercase tracking-[0.28em] text-muted">Season leaderboard</div>
+        {season_rows.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">Nothing scored yet — picks land here after week 1.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="mt-2 w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
+                  <th className="py-1 pr-2 font-medium">#</th>
+                  <th className="py-1 pr-2 font-medium">Player</th>
+                  <th className="py-1 pr-2 text-right font-medium">W-L</th>
+                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Wks won</th>
+                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Best wk</th>
+                  <th className="py-1 text-right font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {season_rows.map((row, i) => (
+                  <tr key={row.entrant_id} className="border-t border-border/15">
+                    <td className="py-1.5 pr-2 text-muted">
+                      {i === 0 ? "🏆" : i + 1}
+                    </td>
+                    <td className="py-1.5 pr-2 font-semibold text-text">{row.display_name}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums text-muted">
+                      {row.correct}-{row.finals_played - row.correct}
+                    </td>
+                    <td className="hidden py-1.5 pr-2 text-right tabular-nums text-muted sm:table-cell">
+                      {row.weeks_won}
+                    </td>
+                    <td className="hidden py-1.5 pr-2 text-right text-xs tabular-nums text-muted sm:table-cell">
+                      {row.best_week ? `${row.best_week.points} (wk ${row.best_week.week})` : "—"}
+                    </td>
+                    <td className="py-1.5 text-right text-base font-bold tabular-nums text-info">
+                      {row.total}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="mt-2 text-[10px] text-muted">
+          Season totals sum every week&rsquo;s straights, bets, and parlays. &ldquo;Wks won&rdquo;
+          counts fully-final weeks where you had the top score (ties share it).
+        </p>
+      </section>
+    </>
   );
 }
