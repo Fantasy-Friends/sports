@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
+import PickemOnboarding from "@/components/PickemOnboarding";
 import { getErrorMessage } from "@/lib/error";
 import type { NflGame, NflWeek } from "@/lib/nfl";
 
@@ -102,6 +103,19 @@ export default function PickemPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+
+  // First visit → the welcome fork (boomer tour vs. speed run). Replayable
+  // any time via the Tour button.
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem("pickem-tour-v1")) setShowTour(true);
+    } catch { /* storage unavailable — skip the tour */ }
+  }, []);
+  function closeTour() {
+    setShowTour(false);
+    try { localStorage.setItem("pickem-tour-v1", "done"); } catch { /* ignore */ }
+  }
 
   const loadBoard = useCallback(async () => {
     try {
@@ -313,8 +327,10 @@ export default function PickemPage() {
       subtitle="Pick winners · rank confidence · bet points at the line · parlay up to 3"
     >
       <div className="space-y-4 pb-24">
+        {showTour && <PickemOnboarding onDone={closeTour} />}
+
         {/* Tabs */}
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
           {(["board", "picks"] as const).map((t) => (
             <button
               key={t}
@@ -327,6 +343,14 @@ export default function PickemPage() {
               {t === "board" ? "Scoreboard" : "Make Picks"}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setShowTour(true)}
+            className="ml-auto rounded-xl border border-border/60 px-3 py-2 text-xs font-semibold text-muted hover:text-text"
+            aria-label="Replay the Pick'em tour"
+          >
+            🧓 Tour
+          </button>
         </div>
 
         {tab === "board" && <ScoreboardView board={board} />}
