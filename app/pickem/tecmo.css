@@ -1,0 +1,312 @@
+/*
+ * Tecmo Bowl / 16-bit NES theme for the /pickem tab.
+ *
+ * Everything is scoped under `.tecmo` so the rest of the app (which uses the
+ * normal design tokens) is untouched. The look is a fixed retro dark palette
+ * regardless of the app's light/dark theme — an arcade cabinet doesn't care
+ * what the room lights are doing. Two pixel fonts: Press Start 2P (--font-pixel)
+ * for chunky headings/scores/buttons, VT323 (--font-terminal) for readable body
+ * copy and dense tables. Both are wired up via next/font on the page.
+ */
+
+.tecmo {
+  --tc-bg: #0a0f24;
+  --tc-panel: #131d40;
+  --tc-panel-2: #1b2854;
+  --tc-field: #1f8a3b;
+  --tc-field-2: #1b7d35;
+  --tc-line: #f6f8ff;
+  --tc-ink: #05060f;
+  --tc-yellow: #ffd23f;
+  --tc-red: #e2413b;
+  --tc-blue: #4aa8ff;
+  --tc-green: #43d17a;
+  --tc-text: #f4f6ff;
+  --tc-dim: #9fb0d6;
+
+  font-family: var(--font-terminal), "VT323", ui-monospace, monospace;
+  color: var(--tc-text);
+  background: var(--tc-bg);
+  /* subtle scanlines over the whole board */
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.16) 0,
+    rgba(0, 0, 0, 0.16) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  border: 4px solid var(--tc-ink);
+  box-shadow: 0 0 0 4px var(--tc-panel-2), 0 10px 0 0 rgba(0, 0, 0, 0.55);
+  padding: 14px;
+  image-rendering: pixelated;
+}
+
+.tecmo *::selection {
+  background: var(--tc-yellow);
+  color: var(--tc-ink);
+}
+
+/* pixel logos stay crisp instead of blurring when scaled */
+.tecmo img {
+  image-rendering: pixelated;
+}
+
+/* ── Typography ─────────────────────────────────────────────── */
+.tc-pixel {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+.tc-title {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--tc-yellow);
+  text-shadow: 2px 2px 0 var(--tc-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tc-label {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--tc-dim);
+}
+.tc-body {
+  font-family: var(--font-terminal), "VT323", ui-monospace, monospace;
+  font-size: 19px;
+  line-height: 1.2;
+}
+.tc-dim {
+  color: var(--tc-dim);
+}
+.tc-red {
+  color: var(--tc-red);
+}
+.tc-green {
+  color: var(--tc-green);
+}
+.tc-yellow {
+  color: var(--tc-yellow);
+}
+.tc-blue {
+  color: var(--tc-blue);
+}
+
+/* ── Panels / cards ─────────────────────────────────────────── */
+.tc-panel {
+  background: var(--tc-panel);
+  border: 3px solid var(--tc-ink);
+  box-shadow: 0 0 0 2px var(--tc-line), 5px 5px 0 0 rgba(0, 0, 0, 0.55);
+  padding: 14px;
+}
+.tc-panel--field {
+  background: var(--tc-field);
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.12) 0,
+    rgba(255, 255, 255, 0.12) 2px,
+    transparent 2px,
+    transparent 46px
+  );
+  border-color: var(--tc-ink);
+  box-shadow: 0 0 0 2px var(--tc-line), 5px 5px 0 0 rgba(0, 0, 0, 0.55);
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.tc-btn {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--tc-text);
+  background: var(--tc-panel-2);
+  border: 3px solid var(--tc-ink);
+  box-shadow: 3px 3px 0 0 var(--tc-ink);
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: transform 0.04s steps(1), box-shadow 0.04s steps(1), background 0.1s;
+}
+.tc-btn:hover:not(:disabled) {
+  background: var(--tc-blue);
+  color: var(--tc-ink);
+}
+.tc-btn:active:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 0 var(--tc-ink);
+}
+.tc-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tc-btn--go {
+  background: var(--tc-yellow);
+  color: var(--tc-ink);
+}
+.tc-btn--go:hover:not(:disabled) {
+  background: var(--tc-green);
+}
+.tc-btn--active {
+  background: var(--tc-yellow);
+  color: var(--tc-ink);
+}
+
+/* small square pills (weeks) */
+.tc-pill {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+  color: var(--tc-dim);
+  background: var(--tc-panel);
+  border: 2px solid var(--tc-ink);
+  box-shadow: 2px 2px 0 0 var(--tc-ink);
+  padding: 7px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tc-pill--active {
+  color: var(--tc-ink);
+  background: var(--tc-yellow);
+}
+
+/* chip toggles (bet / parlay) */
+.tc-chip {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 8px;
+  text-transform: uppercase;
+  color: var(--tc-dim);
+  background: transparent;
+  border: 2px solid var(--tc-dim);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.tc-chip--bet {
+  color: var(--tc-ink);
+  background: var(--tc-green);
+  border-color: var(--tc-ink);
+}
+.tc-chip--parlay {
+  color: var(--tc-ink);
+  background: var(--tc-yellow);
+  border-color: var(--tc-ink);
+}
+.tc-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Team select buttons ────────────────────────────────────── */
+.tc-team {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 10px;
+  background: var(--tc-panel-2);
+  border: 3px solid var(--tc-ink);
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  color: var(--tc-text);
+}
+.tc-team:hover:not(:disabled) {
+  background: #24336a;
+}
+.tc-team--selected {
+  background: var(--tc-blue);
+  color: var(--tc-ink);
+  box-shadow: 3px 3px 0 0 var(--tc-yellow), inset 0 0 0 2px var(--tc-yellow);
+}
+.tc-team--locked {
+  opacity: 0.72;
+  cursor: default;
+}
+.tc-team__abbr {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.tc-team__logo {
+  height: 34px;
+  width: 34px;
+  flex-shrink: 0;
+}
+.tc-score {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 16px;
+}
+
+/* ── Favorability meter ─────────────────────────────────────── */
+.tc-meter {
+  display: flex;
+  height: 14px;
+  border: 3px solid var(--tc-ink);
+  background: var(--tc-ink);
+  overflow: hidden;
+}
+.tc-meter__away {
+  background: var(--tc-blue);
+}
+.tc-meter__home {
+  background: var(--tc-red);
+}
+
+/* ── Select ─────────────────────────────────────────────────── */
+.tc-select {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--tc-text);
+  background: var(--tc-ink);
+  border: 3px solid var(--tc-ink);
+  box-shadow: inset 0 0 0 2px var(--tc-line);
+  padding: 6px 8px;
+}
+.tc-select:focus {
+  outline: 2px solid var(--tc-yellow);
+}
+
+/* ── Tables (scoreboards) ───────────────────────────────────── */
+.tc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-terminal), "VT323", ui-monospace, monospace;
+  font-size: 19px;
+}
+.tc-table thead th {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--tc-ink);
+  background: var(--tc-yellow);
+  padding: 8px 6px;
+  border: 2px solid var(--tc-ink);
+}
+.tc-table tbody td {
+  padding: 5px 6px;
+  border: 2px solid var(--tc-ink);
+  line-height: 1;
+}
+.tc-table tbody tr:nth-child(odd) td {
+  background: var(--tc-panel);
+}
+.tc-table tbody tr:nth-child(even) td {
+  background: var(--tc-panel-2);
+}
+.tc-table .tc-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.tc-table .tc-pts {
+  font-family: var(--font-pixel), "Press Start 2P", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--tc-yellow);
+}
+
+/* status banner strip */
+.tc-banner {
+  background: var(--tc-ink);
+  border: 3px solid var(--tc-line);
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 0.5);
+  padding: 10px 12px;
+}

@@ -1,10 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Press_Start_2P, VT323 } from "next/font/google";
 import AppShell from "@/components/AppShell";
 import PickemOnboarding from "@/components/PickemOnboarding";
 import { getErrorMessage } from "@/lib/error";
 import type { NflGame, NflWeek } from "@/lib/nfl";
+import { TeamHelmet } from "./helmets";
+import "./tecmo.css";
+
+// Retro pixel fonts for the Tecmo Bowl theme (see tecmo.css). Press Start 2P is
+// the chunky heading/scoreboard face; VT323 is the readable terminal body face.
+const pixelFont = Press_Start_2P({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-pixel",
+  display: "swap",
+});
+const terminalFont = VT323({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-terminal",
+  display: "swap",
+});
 
 type PickRow = {
   game_id: string;
@@ -56,8 +74,10 @@ type BoardData = {
 };
 
 const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
-const GREEN = "#22c55e";
-const AMBER = "#f59e0b";
+// Tecmo palette (mirrors the CSS vars) for the few inline-colored bits.
+const GREEN = "#43d17a";
+const AMBER = "#ffd23f";
+const RED = "#e2413b";
 
 function kickoffLabel(iso: string): string {
   const d = new Date(iso);
@@ -326,170 +346,172 @@ export default function PickemPage() {
       title="NFL Pick'em"
       subtitle="Pick winners · rank confidence · bet points at the line · parlay up to 3"
     >
-      <div className="space-y-4 pb-24">
-        {showTour && <PickemOnboarding onDone={closeTour} />}
+      <div className={`${pixelFont.variable} ${terminalFont.variable} tecmo`}>
+        <div className="space-y-3 pb-24">
+          {showTour && <PickemOnboarding onDone={closeTour} />}
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1.5">
-          {(["board", "picks"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-                tab === t ? "bg-accent text-black" : "border border-border/60 text-muted hover:text-text"
-              }`}
-            >
-              {t === "board" ? "Scoreboard" : "Make Picks"}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setShowTour(true)}
-            className="ml-auto rounded-xl border border-border/60 px-3 py-2 text-xs font-semibold text-muted hover:text-text"
-            aria-label="Replay the Pick'em tour"
-          >
-            🧓 Tour
-          </button>
-        </div>
-
-        {tab === "board" && <ScoreboardView board={board} />}
-
-        {tab === "picks" && (
-        <>
-        {/* Week selector */}
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-          {WEEKS.map((w) => (
-            <button
-              key={w}
-              type="button"
-              onClick={() => void loadWeek(w)}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-                w === week
-                  ? "bg-accent text-black"
-                  : "border border-border/60 text-muted hover:text-text"
-              }`}
-            >
-              Wk {w}
-            </button>
-          ))}
-        </div>
-
-        {error && (
-          <div className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
+          {/* Marquee */}
+          <div className="tc-banner flex items-center justify-between gap-3">
+            <span className="tc-title">🏈 Tecmo Pick&rsquo;em</span>
+            <span className="tc-label">
+              {week ? `Week ${String(week).padStart(2, "0")}` : "Loading"}
+            </span>
           </div>
-        )}
 
-        {loading ? (
-          <div className="rounded-[1.5rem] border border-border/30 bg-surface/40 p-6 text-sm text-muted">
-            Loading week{week ? ` ${week}` : ""}…
-          </div>
-        ) : (
-          <>
-            {/* Status / save bar */}
-            <div className="soft-card sticky top-2 z-20 flex items-center justify-between gap-3 rounded-2xl border border-border/40 bg-surface/90 px-4 py-3 backdrop-blur-xl">
-              <div className="min-w-0 text-xs text-muted">
-                <span className="font-semibold text-text">
-                  {pickedCount}/{games.length} picked
-                </span>
-                {missingConfidence > 0 && (
-                  <span style={{ color: AMBER }}> · {missingConfidence} need a confidence #</span>
-                )}
-                {parlayIncomplete && <span style={{ color: AMBER }}> · parlay needs 2-3 legs</span>}
-                {!dirty && savedAt && <span style={{ color: GREEN }}> · saved ✓</span>}
-                <span className="block sm:inline sm:before:content-['_·_']">
-                  scale 1–{maxConfidence}
-                </span>
-              </div>
+          {/* Tabs */}
+          <div className="flex items-center gap-2">
+            {(["board", "picks"] as const).map((t) => (
               <button
+                key={t}
                 type="button"
-                onClick={() => void save()}
-                disabled={saving || !dirty || missingConfidence > 0 || parlayIncomplete}
-                className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-black disabled:opacity-40"
+                onClick={() => setTab(t)}
+                className={`tc-btn ${tab === t ? "tc-btn--active" : ""}`}
               >
-                {saving ? "Saving…" : "Save picks"}
+                {t === "board" ? "Scoreboard" : "Make Picks"}
               </button>
-            </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setShowTour(true)}
+              className="tc-btn ml-auto"
+              aria-label="Replay the Pick'em tour"
+            >
+              ? Tour
+            </button>
+          </div>
 
-            {/* Parlay slip */}
-            {parlayInfo && (
-              <div className="soft-card rounded-2xl border border-accent/40 bg-accent/5 px-4 py-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-accent">
-                    🎰 Parlay · {parlayInfo.legs.length} leg{parlayInfo.legs.length === 1 ? "" : "s"}
-                  </span>
-                  <span className="text-xs tabular-nums text-muted">
-                    {parlayInfo.missingLine
-                      ? "waiting on a line"
-                      : `${parlayInfo.combined.toFixed(2)}x combined`}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text">
-                  {parlayInfo.legs.map((l) => (
-                    <span key={l.gid}>
-                      {l.team}
-                      <span className="text-muted">
-                        {" "}({l.confidence ?? "—"}{l.dec !== null ? ` · ${l.dec.toFixed(2)}x` : ""})
-                      </span>
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-1.5 text-[11px] text-muted">
-                  Stake <span className="font-semibold text-text">{parlayInfo.stake}</span> pts →
-                  all legs win:{" "}
-                  <span className="font-semibold" style={{ color: GREEN }}>
-                    +{parlayInfo.missingLine ? "?" : Math.round(parlayInfo.stake * parlayInfo.combined)}
-                  </span>{" "}
-                  · any leg loses:{" "}
-                  <span className="font-semibold text-danger">-{parlayInfo.stake}</span>
-                  {parlayIncomplete && <span style={{ color: AMBER }}> · add 1-2 more legs</span>}
-                </div>
+          {tab === "board" && <ScoreboardView board={board} />}
+
+          {tab === "picks" && (
+            <>
+              {/* Week selector */}
+              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                {WEEKS.map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => void loadWeek(w)}
+                    className={`tc-pill shrink-0 ${w === week ? "tc-pill--active" : ""}`}
+                  >
+                    W{String(w).padStart(2, "0")}
+                  </button>
+                ))}
               </div>
-            )}
 
-            {/* Games */}
-            <div className="space-y-3">
-              {games.map((game) => (
-                <GameCard
-                  key={game.game_id}
-                  game={game}
-                  pick={picks[game.game_id]}
-                  maxConfidence={maxConfidence}
-                  usedConfidences={usedConfidences}
-                  reveals={revealedByGame.get(game.game_id) ?? []}
-                  parlayFull={parlayEntries.length >= 3}
-                  onPick={(team) => toggleTeam(game, team)}
-                  onConfidence={(v) => setConfidence(game.game_id, v)}
-                  onToggleBet={() => toggleBet(game.game_id)}
-                  onToggleParlay={() => toggleParlay(game.game_id)}
-                />
-              ))}
-              {games.length === 0 && (
-                <div className="rounded-[1.5rem] border border-border/30 bg-surface/40 p-6 text-sm text-muted">
-                  No games found for this week.
+              {error && (
+                <div className="tc-banner tc-body" style={{ color: RED, borderColor: RED }}>
+                  {error}
                 </div>
               )}
-            </div>
 
-            <p className="text-[11px] text-muted">
-              Lines via ESPN
-              {schedule?.fetched_at
-                ? ` · last updated ${new Date(schedule.fetched_at).toLocaleString(undefined, {
-                    month: "numeric",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}`
-                : ""}
-              , refreshed every few minutes. Win % is the vig-removed implied probability from the
-              moneylines. Bet & parlay odds lock in when you save. Picks lock at kickoff;
-              everyone&rsquo;s picks reveal per game once it kicks off.
-            </p>
-          </>
-        )}
-        </>
-        )}
+              {loading ? (
+                <div className="tc-panel tc-body tc-dim">
+                  Loading week{week ? ` ${week}` : ""}…
+                </div>
+              ) : (
+                <>
+                  {/* Status / save bar */}
+                  <div className="tc-banner sticky top-2 z-20 flex items-center justify-between gap-3">
+                    <div className="tc-body min-w-0">
+                      <span className="tc-yellow">
+                        {pickedCount}/{games.length} PICKED
+                      </span>
+                      {missingConfidence > 0 && (
+                        <span style={{ color: AMBER }}> · {missingConfidence} need a #</span>
+                      )}
+                      {parlayIncomplete && <span style={{ color: AMBER }}> · parlay needs 2-3</span>}
+                      {!dirty && savedAt && <span style={{ color: GREEN }}> · SAVED ✓</span>}
+                      <span className="tc-dim block sm:inline sm:before:content-['_·_']">
+                        scale 1–{maxConfidence}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void save()}
+                      disabled={saving || !dirty || missingConfidence > 0 || parlayIncomplete}
+                      className="tc-btn tc-btn--go shrink-0"
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+
+                  {/* Parlay slip */}
+                  {parlayInfo && (
+                    <div className="tc-panel" style={{ background: "#241b02", borderColor: AMBER }}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="tc-label tc-yellow">
+                          🎰 Parlay · {parlayInfo.legs.length} leg
+                          {parlayInfo.legs.length === 1 ? "" : "s"}
+                        </span>
+                        <span className="tc-body tc-dim tabular-nums">
+                          {parlayInfo.missingLine
+                            ? "waiting on a line"
+                            : `${parlayInfo.combined.toFixed(2)}x combined`}
+                        </span>
+                      </div>
+                      <div className="tc-body mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                        {parlayInfo.legs.map((l) => (
+                          <span key={l.gid}>
+                            {l.team}
+                            <span className="tc-dim">
+                              {" "}({l.confidence ?? "—"}
+                              {l.dec !== null ? ` · ${l.dec.toFixed(2)}x` : ""})
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="tc-body mt-1.5 tc-dim">
+                        Stake <span className="tc-yellow">{parlayInfo.stake}</span> pts → all win:{" "}
+                        <span style={{ color: GREEN }}>
+                          +{parlayInfo.missingLine ? "?" : Math.round(parlayInfo.stake * parlayInfo.combined)}
+                        </span>{" "}
+                        · any loss: <span style={{ color: RED }}>-{parlayInfo.stake}</span>
+                        {parlayIncomplete && <span style={{ color: AMBER }}> · add 1-2 more</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Games — on the field */}
+                  <div className="tc-panel--field space-y-3 p-3">
+                    {games.map((game) => (
+                      <GameCard
+                        key={game.game_id}
+                        game={game}
+                        pick={picks[game.game_id]}
+                        maxConfidence={maxConfidence}
+                        usedConfidences={usedConfidences}
+                        reveals={revealedByGame.get(game.game_id) ?? []}
+                        parlayFull={parlayEntries.length >= 3}
+                        onPick={(team) => toggleTeam(game, team)}
+                        onConfidence={(v) => setConfidence(game.game_id, v)}
+                        onToggleBet={() => toggleBet(game.game_id)}
+                        onToggleParlay={() => toggleParlay(game.game_id)}
+                      />
+                    ))}
+                    {games.length === 0 && (
+                      <div className="tc-panel tc-body tc-dim">No games found for this week.</div>
+                    )}
+                  </div>
+
+                  <p className="tc-body tc-dim">
+                    Lines via ESPN
+                    {schedule?.fetched_at
+                      ? ` · last updated ${new Date(schedule.fetched_at).toLocaleString(undefined, {
+                          month: "numeric",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}`
+                      : ""}
+                    , refreshed every few minutes. Win % is the vig-removed implied probability from
+                    the moneylines. Bet & parlay odds lock in when you save. Picks lock at kickoff;
+                    everyone&rsquo;s picks reveal per game once it kicks off.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </AppShell>
   );
@@ -512,35 +534,24 @@ function TeamButton({
       disabled={locked}
       aria-pressed={selected}
       className={[
-        "flex flex-1 items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors",
-        selected
-          ? "border-accent bg-accent/15 ring-1 ring-accent/50"
-          : "border-border/50 bg-bg/40",
-        locked ? "opacity-70" : "hover:border-border",
+        "tc-team",
+        selected ? "tc-team--selected" : "",
+        locked ? "tc-team--locked" : "",
       ].join(" ")}
     >
-      {side.logo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={side.logo} alt="" className="h-8 w-8 shrink-0" />
-      ) : (
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface text-xs font-bold">
-          {side.abbr}
-        </span>
-      )}
+      <TeamHelmet abbr={side.abbr} className="tc-team__logo" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="truncate text-sm font-semibold text-text">{side.abbr}</span>
-          {winner && <span className="text-[10px] font-bold text-accent">W</span>}
-          {selected && <span className="text-accent">✓</span>}
+          <span className="tc-team__abbr truncate">{side.abbr}</span>
+          {winner && <span className="tc-label tc-green">W</span>}
+          {selected && <span className="tc-label">✓</span>}
         </span>
-        <span className="block text-[11px] text-muted">
+        <span className="tc-body block" style={{ opacity: 0.85 }}>
           {side.record ?? ""}
           {ml && <span className="tabular-nums"> · {ml}</span>}
         </span>
       </span>
-      {side.score !== null && (
-        <span className="shrink-0 text-lg font-bold tabular-nums text-text">{side.score}</span>
-      )}
+      {side.score !== null && <span className="tc-score shrink-0 tabular-nums">{side.score}</span>}
     </button>
   );
 }
@@ -567,23 +578,23 @@ function GameCard({
     pick?.confidence != null && pickDec !== null ? Math.round(pick.confidence * pickDec) : null;
 
   return (
-    <section className="soft-card rounded-[1.25rem] border border-border/40 bg-surface/50 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted">
+    <section className="tc-panel">
+      <div className="tc-label mb-2 flex items-center justify-between gap-2">
         <span>{kickoffLabel(game.kickoff)}</span>
         <span className="flex items-center gap-2">
           {game.odds?.details && (
-            <span className="rounded-md bg-bg/60 px-1.5 py-0.5 font-semibold text-text">
-              {game.odds.details}
-            </span>
+            <span className="tc-yellow">{game.odds.details}</span>
           )}
           {game.odds?.over_under !== null && game.odds?.over_under !== undefined && (
             <span className="tabular-nums">O/U {game.odds.over_under}</span>
           )}
           {game.locked && (
-            <span
-              className={`font-bold uppercase ${game.state === "post" ? "text-muted" : "text-[#f59e0b]"}`}
-            >
-              {game.state === "post" ? "Final" : game.state === "in" ? game.status_detail || "Live" : "Locked"}
+            <span className={game.state === "post" ? "tc-dim" : "tc-yellow"}>
+              {game.state === "post"
+                ? "Final"
+                : game.state === "in"
+                  ? game.status_detail || "Live"
+                  : "Locked"}
             </span>
           )}
         </span>
@@ -598,7 +609,7 @@ function GameCard({
           winner={game.away.winner}
           onClick={() => onPick(game.away.abbr)}
         />
-        <span className="self-center text-[10px] font-semibold text-muted">@</span>
+        <span className="tc-label self-center">@</span>
         <TeamButton
           side={game.home}
           ml={lineLabel(game.odds?.home_ml ?? null, game.odds?.home_dec ?? null)}
@@ -612,16 +623,16 @@ function GameCard({
       {/* Vegas favorability meter (0-100) */}
       {awayProb !== null && homeProb !== null && (
         <div className="mt-2.5">
-          <div className="flex h-2 overflow-hidden rounded-full">
-            <div className="bg-info/80" style={{ width: `${awayProb}%` }} />
-            <div className="bg-accent/80" style={{ width: `${homeProb}%` }} />
+          <div className="tc-meter">
+            <div className="tc-meter__away" style={{ width: `${awayProb}%` }} />
+            <div className="tc-meter__home" style={{ width: `${homeProb}%` }} />
           </div>
-          <div className="mt-1 flex justify-between text-[10px] tabular-nums text-muted">
+          <div className="tc-label mt-1 flex justify-between tabular-nums">
             <span>
-              <span className="font-semibold text-info">{game.away.abbr}</span> {awayProb}%
+              <span className="tc-blue">{game.away.abbr}</span> {awayProb}%
             </span>
             <span>
-              {homeProb}% <span className="font-semibold text-accent">{game.home.abbr}</span>
+              {homeProb}% <span className="tc-red">{game.home.abbr}</span>
             </span>
           </div>
         </div>
@@ -629,15 +640,15 @@ function GameCard({
 
       {/* Confidence + wager controls */}
       {pick && !game.locked && (
-        <div className="mt-2.5 space-y-2 rounded-xl border border-border/40 bg-bg/40 px-3 py-2">
+        <div className="mt-2.5 space-y-2 border-t-2 border-dashed pt-2.5" style={{ borderColor: "#2a3a6a" }}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted">
-              Confidence in <span className="font-semibold text-text">{pick.team}</span>
+            <span className="tc-body tc-dim">
+              Confidence in <span className="tc-yellow">{pick.team}</span>
             </span>
             <select
               value={pick.confidence ?? ""}
               onChange={(e) => onConfidence(e.target.value === "" ? null : Number(e.target.value))}
-              className="rounded-lg border border-border/60 bg-surface px-2 py-1.5 text-sm font-semibold text-text"
+              className="tc-select"
               aria-label={`Confidence points for ${pick.team}`}
             >
               <option value="">—</option>
@@ -655,40 +666,32 @@ function GameCard({
             </select>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onToggleBet}
               disabled={pickDec === null}
               aria-pressed={pick.bet}
-              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-40 ${
-                pick.bet
-                  ? "border-transparent bg-[#22c55e]/20 text-[#22c55e]"
-                  : "border-border/50 text-muted"
-              }`}
+              className={`tc-chip ${pick.bet ? "tc-chip--bet" : ""}`}
             >
-              💰 Bet it{pick.bet && betPayout !== null ? ` · win +${betPayout}` : ""}
+              💰 Bet{pick.bet && betPayout !== null ? ` +${betPayout}` : ""}
             </button>
             <button
               type="button"
               onClick={onToggleParlay}
               disabled={pickDec === null || (!pick.parlay && parlayFull)}
               aria-pressed={pick.parlay}
-              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-40 ${
-                pick.parlay
-                  ? "border-transparent bg-accent/20 text-accent"
-                  : "border-border/50 text-muted"
-              }`}
+              className={`tc-chip ${pick.parlay ? "tc-chip--parlay" : ""}`}
             >
-              🎰 Parlay leg
+              🎰 Parlay
             </button>
             {pick.bet && pick.confidence != null && (
-              <span className="text-[10px] text-muted">
-                risk <span className="text-danger">-{pick.confidence}</span> on a loss
+              <span className="tc-body tc-dim">
+                risk <span style={{ color: RED }}>-{pick.confidence}</span> on a loss
               </span>
             )}
             {pickDec === null && (
-              <span className="text-[10px] text-muted">no line yet — betting unavailable</span>
+              <span className="tc-body tc-dim">no line yet — betting off</span>
             )}
           </div>
         </div>
@@ -696,17 +699,17 @@ function GameCard({
 
       {/* Revealed picks after kickoff */}
       {game.locked && (reveals.length > 0 || pick) && (
-        <div className="mt-2.5 rounded-xl border border-border/30 bg-bg/30 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-muted">Picks</div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+        <div className="mt-2.5 border-t-2 border-dashed pt-2" style={{ borderColor: "#2a3a6a" }}>
+          <div className="tc-label">Picks</div>
+          <div className="tc-body mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
             {pick && (
-              <span className="text-text">
-                <span className="font-semibold">You</span>: {pick.team} ({pick.confidence ?? "—"})
+              <span>
+                <span className="tc-yellow">You</span>: {pick.team} ({pick.confidence ?? "—"})
                 {pick.bet ? " 💰" : ""}{pick.parlay ? " 🎰" : ""}
               </span>
             )}
             {reveals.map((r) => (
-              <span key={`${r.game_id}-${r.display_name}`} className="text-muted">
+              <span key={`${r.game_id}-${r.display_name}`} className="tc-dim">
                 {r.display_name}: {r.picked_team} ({r.confidence})
                 {r.is_bet ? " 💰" : ""}{r.parlay_group !== null ? " 🎰" : ""}
               </span>
@@ -721,80 +724,67 @@ function GameCard({
 
 function ScoreboardView({ board }: { board: BoardData | null }) {
   if (!board) {
-    return (
-      <div className="rounded-[1.5rem] border border-border/30 bg-surface/40 p-6 text-sm text-muted">
-        Loading scoreboard…
-      </div>
-    );
+    return <div className="tc-panel tc-body tc-dim">Loading scoreboard…</div>;
   }
   const { featured_week, weekly, season_rows } = board;
   return (
     <>
       {/* Featured week scoreboard */}
-      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/50 p-4">
+      <section className="tc-panel">
         <div className="flex items-baseline justify-between gap-2">
-          <div className="text-[11px] uppercase tracking-[0.28em] text-muted">
-            Week {featured_week} scoreboard
-          </div>
-          <span className="text-[10px] text-muted">flips to the new week on Wednesday</span>
+          <div className="tc-label tc-yellow">Week {featured_week} Scoreboard</div>
+          <span className="tc-label">flips Wednesday</span>
         </div>
         {weekly.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">No picks in for week {featured_week} yet.</p>
+          <p className="tc-body tc-dim mt-3">No picks in for week {featured_week} yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="mt-2 w-full text-sm">
+          <div className="mt-2 overflow-x-auto">
+            <table className="tc-table">
               <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
-                  <th className="py-1 pr-2 font-medium">#</th>
-                  <th className="py-1 pr-2 font-medium">Player</th>
-                  <th className="py-1 pr-2 text-right font-medium">W-L</th>
-                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Str</th>
-                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Bets</th>
-                  <th className="py-1 pr-2 text-right font-medium">Parlay</th>
-                  <th className="py-1 text-right font-medium">Pts</th>
+                <tr>
+                  <th>#</th>
+                  <th>Player</th>
+                  <th className="tc-num">W-L</th>
+                  <th className="tc-num hidden sm:table-cell">Str</th>
+                  <th className="tc-num hidden sm:table-cell">Bets</th>
+                  <th className="tc-num">Parlay</th>
+                  <th className="tc-num">Pts</th>
                 </tr>
               </thead>
               <tbody>
                 {weekly.map((row, i) => (
-                  <tr key={row.entrant_id} className="border-t border-border/15">
-                    <td className="py-1.5 pr-2 text-muted">{i + 1}</td>
-                    <td className="py-1.5 pr-2 font-semibold text-text">{row.display_name}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums text-muted">
+                  <tr key={row.entrant_id}>
+                    <td className="tc-dim">{i + 1}</td>
+                    <td>{row.display_name}</td>
+                    <td className="tc-num tc-dim">
                       {row.correct}-{row.finals_played - row.correct}
                     </td>
-                    <td className="hidden py-1.5 pr-2 text-right tabular-nums text-muted sm:table-cell">
-                      {row.straight_points}
-                    </td>
-                    <td className="hidden py-1.5 pr-2 text-right tabular-nums sm:table-cell">
+                    <td className="tc-num tc-dim hidden sm:table-cell">{row.straight_points}</td>
+                    <td className="tc-num hidden sm:table-cell">
                       {row.bet_points !== 0 ? (
-                        <span
-                          className={row.bet_points < 0 ? "text-danger" : ""}
-                          style={row.bet_points > 0 ? { color: GREEN } : undefined}
-                        >
+                        <span style={{ color: row.bet_points < 0 ? RED : GREEN }}>
                           {row.bet_points > 0 ? "+" : ""}{row.bet_points}
                         </span>
                       ) : (
-                        <span className="text-muted">—</span>
+                        <span className="tc-dim">—</span>
                       )}
                     </td>
-                    <td className="py-1.5 pr-2 text-right text-xs tabular-nums">
+                    <td className="tc-num">
                       {row.parlay ? (
                         row.parlay.status === "won" ? (
                           <span style={{ color: GREEN }}>+{row.parlay.points}</span>
                         ) : row.parlay.status === "busted" ? (
-                          <span className="text-danger">{row.parlay.points}</span>
+                          <span style={{ color: RED }}>{row.parlay.points}</span>
                         ) : (
                           <span style={{ color: AMBER }}>
-                            {row.parlay.legs} legs · {row.parlay.combined_decimal.toFixed(2)}x
+                            {row.parlay.legs}L · {row.parlay.combined_decimal.toFixed(2)}x
                           </span>
                         )
                       ) : (
-                        <span className="text-muted">—</span>
+                        <span className="tc-dim">—</span>
                       )}
                     </td>
-                    <td className="py-1.5 text-right text-base font-bold tabular-nums text-info">
-                      {row.total}
-                    </td>
+                    <td className="tc-num tc-pts">{row.total}</td>
                   </tr>
                 ))}
               </tbody>
@@ -804,49 +794,43 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
       </section>
 
       {/* Season leaderboard */}
-      <section className="soft-card rounded-[1.5rem] border border-border/40 bg-surface/50 p-4">
-        <div className="text-[11px] uppercase tracking-[0.28em] text-muted">Season leaderboard</div>
+      <section className="tc-panel">
+        <div className="tc-label tc-yellow">Season Leaderboard</div>
         {season_rows.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">Nothing scored yet — picks land here after week 1.</p>
+          <p className="tc-body tc-dim mt-3">Nothing scored yet — picks land here after week 1.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="mt-2 w-full text-sm">
+          <div className="mt-2 overflow-x-auto">
+            <table className="tc-table">
               <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
-                  <th className="py-1 pr-2 font-medium">#</th>
-                  <th className="py-1 pr-2 font-medium">Player</th>
-                  <th className="py-1 pr-2 text-right font-medium">W-L</th>
-                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Wks won</th>
-                  <th className="hidden py-1 pr-2 text-right font-medium sm:table-cell">Best wk</th>
-                  <th className="py-1 text-right font-medium">Total</th>
+                <tr>
+                  <th>#</th>
+                  <th>Player</th>
+                  <th className="tc-num">W-L</th>
+                  <th className="tc-num hidden sm:table-cell">Wks won</th>
+                  <th className="tc-num hidden sm:table-cell">Best wk</th>
+                  <th className="tc-num">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {season_rows.map((row, i) => (
-                  <tr key={row.entrant_id} className="border-t border-border/15">
-                    <td className="py-1.5 pr-2 text-muted">
-                      {i === 0 ? "🏆" : i + 1}
-                    </td>
-                    <td className="py-1.5 pr-2 font-semibold text-text">{row.display_name}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums text-muted">
+                  <tr key={row.entrant_id}>
+                    <td className="tc-dim">{i === 0 ? "🏆" : i + 1}</td>
+                    <td>{row.display_name}</td>
+                    <td className="tc-num tc-dim">
                       {row.correct}-{row.finals_played - row.correct}
                     </td>
-                    <td className="hidden py-1.5 pr-2 text-right tabular-nums text-muted sm:table-cell">
-                      {row.weeks_won}
-                    </td>
-                    <td className="hidden py-1.5 pr-2 text-right text-xs tabular-nums text-muted sm:table-cell">
+                    <td className="tc-num tc-dim hidden sm:table-cell">{row.weeks_won}</td>
+                    <td className="tc-num tc-dim hidden sm:table-cell">
                       {row.best_week ? `${row.best_week.points} (wk ${row.best_week.week})` : "—"}
                     </td>
-                    <td className="py-1.5 text-right text-base font-bold tabular-nums text-info">
-                      {row.total}
-                    </td>
+                    <td className="tc-num tc-pts">{row.total}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        <p className="mt-2 text-[10px] text-muted">
+        <p className="tc-body tc-dim mt-2">
           Season totals sum every week&rsquo;s straights, bets, and parlays. &ldquo;Wks won&rdquo;
           counts fully-final weeks where you had the top score (ties share it).
         </p>
