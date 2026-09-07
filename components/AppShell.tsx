@@ -82,17 +82,17 @@ type BonusAward = {
   event: { slug: string; name: string } | null;
 };
 
+// Draft / Player Leaderboard / Tournament Leaderboard / Lottery are intentionally
+// omitted — the pages still work by direct URL (/draft, /leaderboard, /tournament,
+// /lottery), they're just hidden from the menu while the season is centered on NFL
+// Pick'em and the MLB Playoffs. Re-add them here to restore the menu entries.
 const NAV_ITEMS = [
   { href: "/",                    label: "Home" },
   { href: "/season/2026",         label: "Season" },
   { href: "/chat",                label: "Chat" },
   { href: "/calendar",            label: "Calendar" },
-  { href: "/lottery",             label: "Lottery" },
   { href: "/hot-seat",            label: "Hot Seat" },
-  { href: "/draft",               label: "Draft" },
   { href: "/pickem",              label: "NFL Pick'em" },
-  { href: "/leaderboard",         label: "Player Leaderboard" },
-  { href: "/tournament",          label: "Tournament Leaderboard" },
   { href: "/preferences",         label: "Notifications" },
   { href: "/drinks",              label: "Drink Tracker" },
   { href: "/admin",               label: "Admin" },
@@ -136,20 +136,7 @@ const BOTTOM_TABS = [
       </svg>
     ),
   },
-  {
-    href: "/lottery",
-    label: "Lottery",
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
-        <rect x="3" y="3" width="18" height="18" rx="3" />
-        <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none" />
-        <circle cx="15.5" cy="8.5" r="1.5" fill="currentColor" stroke="none" />
-        <circle cx="8.5" cy="15.5" r="1.5" fill="currentColor" stroke="none" />
-        <circle cx="15.5" cy="15.5" r="1.5" fill="currentColor" stroke="none" />
-        <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
-      </svg>
-    ),
-  },
+  // Lottery is hidden for now (still reachable at /lottery). See NAV_ITEMS above.
 ];
 
 const PRESENCE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes = "here now"
