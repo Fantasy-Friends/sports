@@ -52,6 +52,22 @@ export function currentNflSeason(now = new Date()): number {
   return now.getUTCMonth() >= 2 ? y : y - 1;
 }
 
+// The regular-season week to default to ("the week you'd pick next"), derived
+// from the date rather than ESPN's "current week" pointer — which, in the
+// offseason/early September, still reports the *prior* season's Week 18.
+//
+// Week 1 kicks off the Thursday after Labor Day (the first Monday of September).
+// A week is "current" from the Tuesday before its Thursday kickoff through the
+// following Monday, matching when picks open/close; clamped to 1–18.
+export function upcomingNflWeek(now = new Date(), season = currentNflSeason(now)): number {
+  const sept1Dow = new Date(Date.UTC(season, 8, 1)).getUTCDay(); // 0=Sun … 6=Sat
+  const firstMondayDay = 1 + ((1 - sept1Dow + 7) % 7); // date of the first Monday
+  const week1KickoffMs = Date.UTC(season, 8, firstMondayDay + 3); // +3 → Thursday
+  const diffDays = (now.getTime() - week1KickoffMs) / 86_400_000;
+  const wk = Math.floor((diffDays + 2) / 7) + 1; // +2 → Tuesday rollover
+  return Math.min(18, Math.max(1, wk));
+}
+
 function impliedProb(ml: number): number {
   return ml < 0 ? -ml / (-ml + 100) : 100 / (ml + 100);
 }
@@ -160,13 +176,19 @@ const CACHE_TTL_MS = 5 * 60_000;
 
 export async function fetchNflWeek(week?: number, season?: number): Promise<NflWeek> {
   const seasonYear = season ?? currentNflSeason();
-  const key = `${seasonYear}:${week ?? "current"}`;
-  const hit = cache.get(key);
   const nowMs = Date.now();
+  // Resolve "no week given" to the date-derived upcoming week instead of
+  // trusting ESPN's current-week pointer (which lags into the prior season).
+  const resolvedWeek = week ?? upcomingNflWeek(new Date(nowMs), seasonYear);
+  const key = `${seasonYear}:${resolvedWeek}`;
+  const hit = cache.get(key);
   if (hit && nowMs - hit.at < CACHE_TTL_MS) return hit.data;
 
-  const params = new URLSearchParams({ seasontype: "2", dates: String(seasonYear) });
-  if (week) params.set("week", String(week));
+  const params = new URLSearchParams({
+    seasontype: "2",
+    dates: String(seasonYear),
+    week: String(resolvedWeek),
+  });
   const res = await fetch(
     `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?${params}`,
     { cache: "no-store" },
@@ -184,14 +206,11 @@ export async function fetchNflWeek(week?: number, season?: number): Promise<NflW
 
   const data: NflWeek = {
     season: seasonYear,
-    week: week ?? json.week?.number ?? 1,
+    week: resolvedWeek,
     games,
     game_count: games.length,
     fetched_at: new Date(nowMs).toISOString(),
   };
   cache.set(key, { at: nowMs, data });
-  // Also cache under the resolved week number so "current" and explicit
-  // requests share entries.
-  cache.set(`${seasonYear}:${data.week}`, { at: nowMs, data });
   return data;
 }
