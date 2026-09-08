@@ -178,6 +178,29 @@ export default function PickemPage() {
           parlay: p.parlay_group !== null,
         };
       }
+      // Restore local drafts (team picked, confidence still unranked) so a
+      // partial save never loses selections. Server rows win per game.
+      try {
+        const raw = localStorage.getItem(`pickem-draft-${weekNum}`);
+        if (raw) {
+          const drafts = JSON.parse(raw) as Record<
+            string,
+            { team: string; bet: boolean; parlay: boolean }
+          >;
+          const sgames = (sched as NflWeek).games;
+          const unlockedIds = new Set(sgames.filter((g) => !g.locked).map((g) => g.game_id));
+          for (const [gid, d] of Object.entries(drafts)) {
+            if (!next[gid] && unlockedIds.has(gid) && d?.team) {
+              next[gid] = {
+                team: d.team,
+                confidence: null,
+                bet: d.bet === true,
+                parlay: d.parlay === true,
+              };
+            }
+          }
+        }
+      } catch { /* drafts are best-effort */ }
       setPicks(next);
       setRevealed((picksJson.revealed ?? []) as RevealedPick[]);
       setDirty(false);
@@ -205,6 +228,20 @@ export default function PickemPage() {
     }, 120_000);
     return () => clearInterval(id);
   }, [week, loadBoard]);
+
+  // Keep unranked selections as per-week drafts on this device.
+  useEffect(() => {
+    if (week === null) return;
+    try {
+      const drafts: Record<string, { team: string; bet: boolean; parlay: boolean }> = {};
+      for (const [gid, p] of Object.entries(picks) as Array<[string, LocalPick]>) {
+        if (p.confidence === null) drafts[gid] = { team: p.team, bet: p.bet, parlay: p.parlay };
+      }
+      const key = `pickem-draft-${week}`;
+      if (Object.keys(drafts).length > 0) localStorage.setItem(key, JSON.stringify(drafts));
+      else localStorage.removeItem(key);
+    } catch { /* drafts are best-effort */ }
+  }, [picks, week]);
 
   const games = schedule?.games ?? [];
   const maxConfidence = schedule?.game_count ?? 0;
@@ -340,6 +377,7 @@ export default function PickemPage() {
   }, [revealed]);
 
   const parlayIncomplete = parlayEntries.length === 1;
+  const parlayMissingConf = parlayEntries.some(([, p]) => p.confidence === null);
 
   return (
     <AppShell
@@ -417,9 +455,15 @@ export default function PickemPage() {
                         {pickedCount}/{games.length} PICKED
                       </span>
                       {missingConfidence > 0 && (
-                        <span style={{ color: AMBER }}> · {missingConfidence} need a #</span>
+                        <span style={{ color: AMBER }}>
+                          {" "}· {missingConfidence} draft{missingConfidence === 1 ? "" : "s"} sans #
+                          (kept on this phone)
+                        </span>
                       )}
                       {parlayIncomplete && <span style={{ color: AMBER }}> · parlay needs 2-3</span>}
+                      {parlayMissingConf && (
+                        <span style={{ color: AMBER }}> · parlay legs need a #</span>
+                      )}
                       {!dirty && savedAt && <span style={{ color: GREEN }}> · SAVED ✓</span>}
                       <span className="tc-dim block sm:inline sm:before:content-['_·_']">
                         scale 1–{maxConfidence}
@@ -428,7 +472,7 @@ export default function PickemPage() {
                     <button
                       type="button"
                       onClick={() => void save()}
-                      disabled={saving || !dirty || missingConfidence > 0 || parlayIncomplete}
+                      disabled={saving || !dirty || parlayIncomplete || parlayMissingConf}
                       className="tc-btn tc-btn--go shrink-0"
                     >
                       {saving ? "Saving…" : "Save"}
