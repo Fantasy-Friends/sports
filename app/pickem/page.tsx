@@ -33,7 +33,14 @@ type PickRow = {
   parlay_group: number | null;
 };
 
-type RevealedPick = PickRow & { display_name: string };
+// Others' revealed picks are guess + confidence only — the API strips all
+// betting details before they reach the client.
+type RevealedPick = {
+  game_id: string;
+  picked_team: string;
+  confidence: number;
+  display_name: string;
+};
 
 type LocalPick = { team: string; confidence: number | null; bet: boolean; parlay: boolean };
 
@@ -67,10 +74,21 @@ type SeasonRow = {
   best_week: { week: number; points: number } | null;
 };
 
+type RevealedGame = {
+  game_id: string;
+  away: string;
+  home: string;
+  state: "pre" | "in" | "post";
+  status_detail: string;
+  winner: string | null;
+  picks: Array<{ display_name: string; picked_team: string; confidence: number }>;
+};
+
 type BoardData = {
   featured_week: number;
   weekly: StandingRow[];
   season_rows: SeasonRow[];
+  revealed_games: RevealedGame[];
 };
 
 const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
@@ -146,6 +164,7 @@ export default function PickemPage() {
         featured_week: json.featured_week ?? 1,
         weekly: (json.weekly ?? []) as StandingRow[],
         season_rows: (json.season_rows ?? []) as SeasonRow[],
+        revealed_games: (json.revealed_games ?? []) as RevealedGame[],
       });
     } catch {
       /* scoreboard is best-effort */
@@ -755,7 +774,6 @@ function GameCard({
             {reveals.map((r) => (
               <span key={`${r.game_id}-${r.display_name}`} className="tc-dim">
                 {r.display_name}: {r.picked_team} ({r.confidence})
-                {r.is_bet ? " 💰" : ""}{r.parlay_group !== null ? " 🎰" : ""}
               </span>
             ))}
           </div>
@@ -770,7 +788,7 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
   if (!board) {
     return <div className="tc-panel tc-body tc-dim">Loading scoreboard…</div>;
   }
-  const { featured_week, weekly, season_rows } = board;
+  const { featured_week, weekly, season_rows, revealed_games } = board;
   return (
     <>
       {/* Featured week scoreboard */}
@@ -836,6 +854,45 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
           </div>
         )}
       </section>
+
+      {/* Who picked who — everyone's guesses for kicked-off games */}
+      {revealed_games.length > 0 && (
+        <section className="tc-panel">
+          <div className="tc-label">Who picked who · Wk {featured_week}</div>
+          <div className="tc-body mt-2 space-y-2.5">
+            {revealed_games.map((g) => (
+              <div key={g.game_id}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="tc-yellow">
+                    {g.away} @ {g.home}
+                  </span>
+                  <span className="tc-dim text-xs">
+                    {g.state === "post" ? "FINAL" : g.status_detail || "LIVE"}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {g.picks.map((pk) => {
+                    const settled = g.winner !== null;
+                    const won = settled && pk.picked_team === g.winner;
+                    return (
+                      <span
+                        key={`${g.game_id}-${pk.display_name}`}
+                        style={settled ? { color: won ? GREEN : RED } : undefined}
+                        className={settled ? "" : "tc-dim"}
+                      >
+                        {pk.display_name}: {pk.picked_team} ({pk.confidence})
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="tc-dim mt-2 text-xs">
+            Guesses + confidence only — bets and parlays stay private. Reveals per game at kickoff.
+          </p>
+        </section>
+      )}
 
       {/* Season leaderboard */}
       <section className="tc-panel">

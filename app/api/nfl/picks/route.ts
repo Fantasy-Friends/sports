@@ -41,11 +41,24 @@ export async function GET(request: NextRequest) {
 
     const lockedGames = new Set(schedule.games.filter((g) => g.locked).map((g) => g.game_id));
     const mine: PickRow[] = [];
-    const revealed: Array<PickRow & { display_name: string }> = [];
+    // Others' picks reveal at kickoff as guess + confidence ONLY — betting
+    // details (bet flag, snapshotted odds, parlay membership) stay private
+    // to the picker, so they never even leave the server.
+    const revealed: Array<{
+      game_id: string;
+      picked_team: string;
+      confidence: number;
+      display_name: string;
+    }> = [];
     for (const row of (rows ?? []) as PickRow[]) {
       if (row.entrant_id === me) mine.push(row);
       else if (lockedGames.has(row.game_id)) {
-        revealed.push({ ...row, display_name: names.get(row.entrant_id) ?? "Player" });
+        revealed.push({
+          game_id: row.game_id,
+          picked_team: row.picked_team,
+          confidence: row.confidence,
+          display_name: names.get(row.entrant_id) ?? "Player",
+        });
       }
     }
 

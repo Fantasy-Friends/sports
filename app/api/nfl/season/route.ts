@@ -113,7 +113,39 @@ export async function GET() {
     // Aggregates only — per-pick reveal rules live in the picks API.
     const weekly = weeklyStandings.map(({ picks: _picks, ...rest }) => rest);
 
-    return NextResponse.json({ season, featured_week: featured, weekly, season_rows: seasonRows });
+    // "Who picked who" for the featured week: every kicked-off game with
+    // everyone's guess + confidence. Betting details (bet flag, odds, parlay
+    // membership) are deliberately NOT included — guesses only.
+    const featuredIdx = weekNumbers.indexOf(featured);
+    const featuredSched = featuredIdx >= 0 ? schedules[featuredIdx] : null;
+    const featuredPicks = picksByWeek.get(featured) ?? [];
+    const revealedGames = (featuredSched?.games ?? [])
+      .filter((g) => g.locked)
+      .map((g) => ({
+        game_id: g.game_id,
+        away: g.away.abbr,
+        home: g.home.abbr,
+        state: g.state,
+        status_detail: g.status_detail,
+        winner: g.home.winner ? g.home.abbr : g.away.winner ? g.away.abbr : null,
+        picks: featuredPicks
+          .filter((p) => p.game_id === g.game_id)
+          .map((p) => ({
+            display_name: names.get(p.entrant_id) ?? "Player",
+            picked_team: p.picked_team,
+            confidence: p.confidence,
+          }))
+          .sort((a, b) => b.confidence - a.confidence),
+      }))
+      .filter((g) => g.picks.length > 0);
+
+    return NextResponse.json({
+      season,
+      featured_week: featured,
+      weekly,
+      season_rows: seasonRows,
+      revealed_games: revealedGames,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: getErrorMessage(err, "Failed to load the Pick'em leaderboard") },
