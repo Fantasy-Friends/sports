@@ -189,16 +189,30 @@ export async function fetchNflWeek(week?: number, season?: number): Promise<NflW
     dates: String(seasonYear),
     week: String(resolvedWeek),
   });
-  const res = await fetch(
-    `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?${params}`,
-    { cache: "no-store" },
-  );
-  if (!res.ok) throw new Error(`ESPN scoreboard returned ${res.status}`);
-  const json = (await res.json()) as {
-    week?: { number?: number };
-    events?: unknown[];
-  };
-
+  // ESPN gets hammered on game days — retry transient failures, and if all
+  // attempts fail serve the stale cache entry (slightly old lines beat a 502
+  // for a scoreboard).
+  type ScoreboardJson = { week?: { number?: number }; events?: unknown[] };
+  let json: ScoreboardJson | null = null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const res = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?${params}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(`ESPN scoreboard returned ${res.status}`);
+      json = (await res.json()) as ScoreboardJson;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+    }
+  }
+  if (json === null) {
+    if (hit) return hit.data; // expired but real data — better than an error
+    throw lastErr instanceof Error ? lastErr : new Error("ESPN scoreboard unreachable");
+  }
   const games = (json.events ?? [])
     .map((e) => normalizeEvent(e, nowMs))
     .filter((g): g is NflGame => g !== null)
