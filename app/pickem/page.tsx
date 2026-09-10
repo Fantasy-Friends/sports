@@ -883,44 +883,42 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
         )}
       </section>
 
-      {/* Who picked who — everyone's guesses for kicked-off games */}
-      {revealed_games.length > 0 && (
-        <section className="tc-panel">
-          <div className="tc-label">Who picked who · Wk {featured_week}</div>
-          <div className="tc-body mt-2 space-y-2.5">
-            {revealed_games.map((g) => (
-              <div key={g.game_id}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="tc-yellow">
-                    {g.away} @ {g.home}
-                  </span>
-                  <span className="tc-dim text-xs">
-                    {g.state === "post" ? "FINAL" : g.status_detail || "LIVE"}
-                  </span>
-                </div>
-                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                  {g.picks.map((pk) => {
-                    const settled = g.winner !== null;
-                    const won = settled && pk.picked_team === g.winner;
-                    return (
-                      <span
-                        key={`${g.game_id}-${pk.display_name}`}
-                        style={settled ? { color: won ? GREEN : RED } : undefined}
-                        className={settled ? "" : "tc-dim"}
-                      >
-                        {pk.display_name}: {pk.picked_team} ({pk.confidence})
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="tc-dim mt-2 text-xs">
-            Guesses + confidence only — bets and parlays stay private. Reveals per game at kickoff.
-          </p>
-        </section>
-      )}
+      {/* Who picked who — a rolling window: games still being played stay
+          open; every game that has gone final folds into one collapsed line
+          (tap to unfold). The window rolls itself as each set of games ends. */}
+      {revealed_games.length > 0 && (() => {
+        const finals = revealed_games.filter((g) => g.state === "post");
+        const open = revealed_games.filter((g) => g.state !== "post");
+        return (
+          <section className="tc-panel">
+            <div className="tc-label">Who picked who · Wk {featured_week}</div>
+            <div className="tc-body mt-2 space-y-2.5">
+              {finals.length > 0 && (
+                <details className="group">
+                  <summary className="tc-dim cursor-pointer select-none text-xs">
+                    <span className="inline-block transition-transform group-open:rotate-90">▸</span>{" "}
+                    {finals.length} final{finals.length === 1 ? "" : "s"} folded up — tap to unfold
+                  </summary>
+                  <div className="mt-2 space-y-2.5 border-l-2 pl-2" style={{ borderColor: "#2a3a6a" }}>
+                    {finals.map((g) => (
+                      <GameRevealRow key={g.game_id} game={g} />
+                    ))}
+                  </div>
+                </details>
+              )}
+              {open.map((g) => (
+                <GameRevealRow key={g.game_id} game={g} />
+              ))}
+              {open.length === 0 && finals.length > 0 && (
+                <div className="tc-dim text-xs">No games on right now — next set opens at kickoff.</div>
+              )}
+            </div>
+            <p className="tc-dim mt-2 text-xs">
+              Guesses + confidence only — bets and parlays stay private. Reveals per game at kickoff.
+            </p>
+          </section>
+        );
+      })()}
 
       {/* Meet me at the counter — the week's bet slips, face-down until settled */}
       {counter.length > 0 && (
@@ -1039,5 +1037,36 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
         </p>
       </section>
     </>
+  );
+}
+
+
+function GameRevealRow({ game: g }: { game: RevealedGame }) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="tc-yellow">
+          {g.away} @ {g.home}
+        </span>
+        <span className="tc-dim text-xs">
+          {g.state === "post" ? "FINAL" : g.status_detail || "LIVE"}
+        </span>
+      </div>
+      <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+        {g.picks.map((pk) => {
+          const settled = g.winner !== null;
+          const won = settled && pk.picked_team === g.winner;
+          return (
+            <span
+              key={`${g.game_id}-${pk.display_name}`}
+              style={settled ? { color: won ? GREEN : RED } : undefined}
+              className={settled ? "" : "tc-dim"}
+            >
+              {pk.display_name}: {pk.picked_team} ({pk.confidence})
+            </span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
