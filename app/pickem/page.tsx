@@ -84,11 +84,38 @@ type RevealedGame = {
   picks: Array<{ display_name: string; picked_team: string; confidence: number }>;
 };
 
+type CounterTicket =
+  | {
+      kind: "bet";
+      game: string;
+      team: string;
+      stake: number;
+      decimal: number;
+      outcome: "win" | "loss" | "push";
+      points: number;
+    }
+  | {
+      kind: "parlay";
+      legs: Array<{ game: string; team: string; outcome: "win" | "loss" | "push" }>;
+      stake: number;
+      combined: number;
+      status: "won" | "busted";
+      points: number;
+    };
+
+type CounterPlayer = {
+  display_name: string;
+  settled: CounterTicket[];
+  pending: number;
+  net: number;
+};
+
 type BoardData = {
   featured_week: number;
   weekly: StandingRow[];
   season_rows: SeasonRow[];
   revealed_games: RevealedGame[];
+  counter: CounterPlayer[];
 };
 
 const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
@@ -165,6 +192,7 @@ export default function PickemPage() {
         weekly: (json.weekly ?? []) as StandingRow[],
         season_rows: (json.season_rows ?? []) as SeasonRow[],
         revealed_games: (json.revealed_games ?? []) as RevealedGame[],
+        counter: (json.counter ?? []) as CounterPlayer[],
       });
     } catch {
       /* scoreboard is best-effort */
@@ -788,7 +816,7 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
   if (!board) {
     return <div className="tc-panel tc-body tc-dim">Loading scoreboard…</div>;
   }
-  const { featured_week, weekly, season_rows, revealed_games } = board;
+  const { featured_week, weekly, season_rows, revealed_games, counter } = board;
   return (
     <>
       {/* Featured week scoreboard */}
@@ -890,6 +918,80 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
           </div>
           <p className="tc-dim mt-2 text-xs">
             Guesses + confidence only — bets and parlays stay private. Reveals per game at kickoff.
+          </p>
+        </section>
+      )}
+
+      {/* Meet me at the counter — the week's bet slips, face-down until settled */}
+      {counter.length > 0 && (
+        <section className="tc-panel">
+          <div className="tc-label">🎟️ Meet me at the counter · Wk {featured_week}</div>
+          <div className="tc-body mt-2 space-y-3">
+            {counter.map((pl) => (
+              <div key={pl.display_name} className="border-t-2 border-dashed pt-2 first:border-t-0 first:pt-0" style={{ borderColor: "#2a3a6a" }}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="tc-yellow">{pl.display_name}</span>
+                  {pl.settled.length > 0 ? (
+                    <span
+                      className="tabular-nums"
+                      style={{ color: pl.net > 0 ? GREEN : pl.net < 0 ? RED : undefined }}
+                    >
+                      {pl.net > 0 ? "+" : ""}{pl.net} pts
+                    </span>
+                  ) : (
+                    <span className="tc-dim text-xs">no action settled yet</span>
+                  )}
+                </div>
+                <div className="mt-1 space-y-0.5">
+                  {pl.settled.map((t, i) =>
+                    t.kind === "bet" ? (
+                      <div key={i} className="flex flex-wrap items-baseline justify-between gap-x-2">
+                        <span className="tc-dim">
+                          💰 {t.team} <span className="text-xs">({t.game})</span> · {t.decimal.toFixed(2)}x · stake {t.stake}
+                          {t.outcome === "push" ? " · PUSH" : ""}
+                        </span>
+                        <span
+                          className="tabular-nums"
+                          style={{ color: t.points > 0 ? GREEN : t.points < 0 ? RED : undefined }}
+                        >
+                          {t.points > 0 ? "+" : ""}{t.points}
+                        </span>
+                      </div>
+                    ) : (
+                      <div key={i} className="flex flex-wrap items-baseline justify-between gap-x-2">
+                        <span className="tc-dim">
+                          🎰{" "}
+                          {t.legs.map((l, j) => (
+                            <span key={j}>
+                              {j > 0 ? " + " : ""}
+                              {l.team}
+                              {l.outcome === "win" ? "✓" : l.outcome === "loss" ? "✗" : "·"}
+                            </span>
+                          ))}{" "}
+                          · {t.combined.toFixed(2)}x · stake {t.stake}
+                          {t.status === "busted" ? " · BUSTED" : " · CASHED"}
+                        </span>
+                        <span
+                          className="tabular-nums"
+                          style={{ color: t.points > 0 ? GREEN : RED }}
+                        >
+                          {t.points > 0 ? "+" : ""}{t.points}
+                        </span>
+                      </div>
+                    ),
+                  )}
+                  {pl.pending > 0 && (
+                    <div className="tc-dim">
+                      🎫 {pl.pending} ticket{pl.pending === 1 ? "" : "s"} face-down — settles when the games do
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="tc-dim mt-2 text-xs">
+            Slips flip face-up only when the whole ticket is settled — a bet at its game&rsquo;s
+            final, a parlay when every leg is final. Until then: nothing.
           </p>
         </section>
       )}

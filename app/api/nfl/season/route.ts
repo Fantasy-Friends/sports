@@ -5,6 +5,7 @@ import { getErrorMessage } from "@/lib/error";
 import { currentNflSeason, fetchNflWeek } from "@/lib/nfl";
 import {
   featuredScoreboardWeek,
+  pickOutcome,
   scoreWeek,
   seasonDisplayNames,
   type PickRow,
@@ -139,12 +140,124 @@ export async function GET() {
       }))
       .filter((g) => g.picks.length > 0);
 
+    // "Meet me at the counter" — the week's bet slips. A ticket flips
+    // face-up ONLY once it is fully settled: a straight bet when its game is
+    // final, a parlay when EVERY leg's game is final (so nothing about an
+    // in-flight ticket — teams, odds, stake — is ever shown early; unsettled
+    // tickets appear only as a count). Settled slips include the full math.
+    type CounterTicket =
+      | {
+          kind: "bet";
+          game: string;
+          team: string;
+          stake: number;
+          decimal: number;
+          outcome: "win" | "loss" | "push";
+          points: number;
+        }
+      | {
+          kind: "parlay";
+          legs: Array<{ game: string; team: string; outcome: "win" | "loss" | "push" }>;
+          stake: number;
+          combined: number;
+          status: "won" | "busted";
+          points: number;
+        };
+
+    const gameByIdF = new Map((featuredSched?.games ?? []).map((g) => [g.game_id, g]));
+    const label = (gid: string) => {
+      const g = gameByIdF.get(gid);
+      return g ? `${g.away.abbr}@${g.home.abbr}` : "?";
+    };
+    const rowsByEntrant = new Map<string, PickRow[]>();
+    for (const p of featuredPicks) {
+      const arr = rowsByEntrant.get(p.entrant_id) ?? [];
+      arr.push(p);
+      rowsByEntrant.set(p.entrant_id, arr);
+    }
+    const counter: Array<{
+      display_name: string;
+      settled: CounterTicket[];
+      pending: number;
+      net: number;
+    }> = [];
+    for (const [entrantId, rows] of rowsByEntrant) {
+      const settled: CounterTicket[] = [];
+      let pending = 0;
+      let net = 0;
+
+      for (const r of rows) {
+        if (r.parlay_group !== null || !r.is_bet) continue;
+        const outcome = pickOutcome(gameByIdF.get(r.game_id), r.picked_team);
+        if (outcome === "pending") {
+          pending += 1;
+          continue;
+        }
+        const dec = r.bet_decimal ?? 1;
+        const points =
+          outcome === "win" ? Math.round(r.confidence * dec) : outcome === "loss" ? -r.confidence : 0;
+        net += points;
+        settled.push({
+          kind: "bet",
+          game: label(r.game_id),
+          team: r.picked_team,
+          stake: r.confidence,
+          decimal: dec,
+          outcome,
+          points,
+        });
+      }
+
+      const parlayRows = rows.filter((r) => r.parlay_group !== null);
+      if (parlayRows.length > 0) {
+        const legOutcomes = parlayRows.map((r) => ({
+          r,
+          outcome: pickOutcome(gameByIdF.get(r.game_id), r.picked_team),
+        }));
+        if (legOutcomes.some((l) => l.outcome === "pending")) {
+          pending += 1;
+        } else {
+          const stake = parlayRows.reduce((sum, r) => sum + r.confidence, 0);
+          const anyLoss = legOutcomes.some((l) => l.outcome === "loss");
+          const combined = legOutcomes.reduce(
+            (prod, l) => prod * (l.outcome === "push" ? 1 : l.r.bet_decimal ?? 1),
+            1,
+          );
+          const points = anyLoss ? -stake : Math.round(stake * combined);
+          net += points;
+          settled.push({
+            kind: "parlay",
+            legs: legOutcomes.map((l) => ({
+              game: label(l.r.game_id),
+              team: l.r.picked_team,
+              outcome: l.outcome as "win" | "loss" | "push",
+            })),
+            stake,
+            combined: Math.round(combined * 100) / 100,
+            status: anyLoss ? "busted" : "won",
+            points,
+          });
+        }
+      }
+
+      if (settled.length > 0 || pending > 0) {
+        counter.push({
+          display_name: names.get(entrantId) ?? "Player",
+          settled,
+          pending,
+          net,
+        });
+      }
+    }
+    counter.sort((a, b) => b.net - a.net || a.display_name.localeCompare(b.display_name));
+
     return NextResponse.json({
       season,
       featured_week: featured,
       weekly,
       season_rows: seasonRows,
       revealed_games: revealedGames,
+      counter,
     });
   } catch (err) {
     return NextResponse.json(

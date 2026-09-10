@@ -139,7 +139,7 @@ export type PlayerWeekScore = {
   picks: ScoredPick[];
 };
 
-function pickOutcome(game: NflGame | undefined, team: string): LegOutcome {
+export function pickOutcome(game: NflGame | undefined, team: string): LegOutcome {
   if (!game || game.state !== "post") return "pending";
   if (game.home.winner) return team === game.home.abbr ? "win" : "loss";
   if (game.away.winner) return team === game.away.abbr ? "win" : "loss";
