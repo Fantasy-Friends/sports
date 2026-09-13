@@ -7,6 +7,7 @@ import PickemOnboarding from "@/components/PickemOnboarding";
 import { getErrorMessage } from "@/lib/error";
 import type { NflGame, NflWeek } from "@/lib/nfl";
 import { TeamHelmet } from "./helmets";
+import { teamColor } from "./teamColors";
 import "./tecmo.css";
 
 // Retro pixel fonts for the Tecmo Bowl theme (see tecmo.css). Press Start 2P is
@@ -795,13 +796,17 @@ function GameCard({
           <div className="tc-body mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
             {pick && (
               <span>
-                <span className="tc-yellow">You</span>: {pick.team} ({pick.confidence ?? "—"})
+                <span className="tc-yellow">You</span>:{" "}
+                <span style={{ color: teamColor(pick.team) }}>{pick.team}</span>{" "}
+                ({pick.confidence ?? "—"})
                 {pick.bet ? " 💰" : ""}{pick.parlay ? " 🎰" : ""}
               </span>
             )}
             {reveals.map((r) => (
               <span key={`${r.game_id}-${r.display_name}`} className="tc-dim">
-                {r.display_name}: {r.picked_team} ({r.confidence})
+                {r.display_name}:{" "}
+                <span style={{ color: teamColor(r.picked_team) }}>{r.picked_team}</span>{" "}
+                ({r.confidence})
               </span>
             ))}
           </div>
@@ -1042,11 +1047,14 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
 
 
 function GameRevealRow({ game: g }: { game: RevealedGame }) {
+  const settled = g.winner !== null;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="tc-yellow">
-          {g.away} @ {g.home}
+        <span>
+          <span style={{ color: teamColor(g.away) }}>{g.away}</span>
+          <span className="tc-dim"> @ </span>
+          <span style={{ color: teamColor(g.home) }}>{g.home}</span>
         </span>
         <span className="tc-dim text-xs">
           {g.state === "post" ? "FINAL" : g.status_detail || "LIVE"}
@@ -1054,15 +1062,17 @@ function GameRevealRow({ game: g }: { game: RevealedGame }) {
       </div>
       <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
         {g.picks.map((pk) => {
-          const settled = g.winner !== null;
           const won = settled && pk.picked_team === g.winner;
           return (
-            <span
-              key={`${g.game_id}-${pk.display_name}`}
-              style={settled ? { color: won ? GREEN : RED } : undefined}
-              className={settled ? "" : "tc-dim"}
-            >
-              {pk.display_name}: {pk.picked_team} ({pk.confidence})
+            <span key={`${g.game_id}-${pk.display_name}`} className="tc-dim">
+              {pk.display_name}:{" "}
+              {/* Team color identifies the pick; ✓/✗ carries right-or-wrong so
+                  the outcome is never communicated by color alone. */}
+              <span style={{ color: teamColor(pk.picked_team) }}>{pk.picked_team}</span>
+              {settled && (
+                <span style={{ color: won ? GREEN : RED }}>{won ? " \u2713" : " \u2717"}</span>
+              )}{" "}
+              ({pk.confidence})
             </span>
           );
         })}
