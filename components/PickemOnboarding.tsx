@@ -31,8 +31,10 @@ const BOOMER_SLIDES: Array<{ emoji: string; title: string; body: string }> = [
     title: "Step 2 · Confidence points",
     body:
       "Rank your picks 1 through 16 — think of your weekly pill organizer: the important one gets the big slot. " +
-      "Each number gets used exactly once. Your surest lock gets the 16. " +
-      "Your “gut feeling” about the Jets gets the 1.",
+      "Each number gets used exactly once. Here is the part that actually matters: if that pick wins, " +
+      "you collect exactly that many points. The 16 pays 16. The 1 pays 1. A wrong pick pays nothing — " +
+      "no refunds, like the cruise. " +
+      "So your surest lock gets the 16, and your “gut feeling” about the Jets gets the 1.",
   },
   {
     emoji: "🎩",
@@ -137,7 +139,9 @@ export default function PickemOnboarding({ onDone }: { onDone: () => void }) {
                 <span className="font-bold text-accent">2.</span>
                 <span>
                   Rank your confidence <span className="font-semibold">1–N</span> (N = this week&rsquo;s
-                  game count — byes shrink the scale). Each number used once.
+                  game count — byes shrink the scale). Each number used once.{" "}
+                  <span className="font-semibold">A correct pick banks exactly that many points; a
+                  miss banks zero.</span> Hit your 16 and that&rsquo;s 16 — so the number IS the wager.
                 </span>
               </li>
               <li className="flex gap-2.5">

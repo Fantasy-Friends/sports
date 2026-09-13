@@ -886,6 +886,13 @@ function ScoreboardView({ board }: { board: BoardData | null }) {
             </table>
           </div>
         )}
+        {/* How points are earned — the base rule lives here so it's always on
+            screen, not only inside the first-visit tour. */}
+        <p className="tc-body tc-dim mt-2 text-xs">
+          Straight pick: a win banks its confidence number, a miss banks 0. 💰 Bet: win = confidence
+          × odds, loss = −confidence. 🎰 Parlay: every leg must hit for stake × combined odds, one
+          loss burns the stake. Only final games count.
+        </p>
       </section>
 
       {/* Who picked who — a rolling window: games still being played stay
