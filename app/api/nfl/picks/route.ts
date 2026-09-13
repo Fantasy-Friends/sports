@@ -15,6 +15,24 @@ export const revalidate = 0;
 const PICK_COLUMNS =
   "season, week, entrant_id, game_id, picked_team, confidence, is_bet, bet_decimal, parlay_group";
 
+// supabase-js puts the diagnosable part of a failure in code/details/hint, not
+// message — a bare message ("" or a stringified fetch error) is undebuggable.
+function describeDbError(e: {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+}): string {
+  return [
+    e.code ? `code=${e.code}` : null,
+    e.message ? `msg=${e.message}` : null,
+    e.details ? `details=${e.details}` : null,
+    e.hint ? `hint=${e.hint}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 // GET ?week=N → your picks for the week, plus everyone's picks for games
 // that have kicked off (pre-kickoff picks stay hidden so nobody can copy).
 export async function GET(request: NextRequest) {
@@ -194,7 +212,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Replace unlocked picks: delete mine for this week except locked games,
-    // then insert the validated set.
+    // then insert the validated set. The rows about to be removed are kept in
+    // memory so a failed insert can put them back — a failed save must never
+    // leave someone with an empty sheet.
+    const replaced = ((existingRows ?? []) as PickRow[]).filter(
+      (r) => !lockedGameIds.has(r.game_id),
+    );
+
     let del = supabaseAdmin
       .from("nfl_pickem_picks")
       .delete()
@@ -205,15 +229,61 @@ export async function POST(request: NextRequest) {
       del = del.not("game_id", "in", `(${[...lockedGameIds].map((g) => `"${g}"`).join(",")})`);
     }
     const { error: delErr } = await del;
-    if (delErr) throw new Error(delErr.message);
+    if (delErr) {
+      console.error(
+        `[picks] delete failed entrant=${me} week=${week}: ${describeDbError(delErr)}`,
+      );
+      return NextResponse.json(
+        { error: "Couldn't save your picks — nothing was changed. Try again." },
+        { status: 500 },
+      );
+    }
 
     if (clean.length > 0) {
       const { error: insErr } = await supabaseAdmin.from("nfl_pickem_picks").insert(clean);
-      if (insErr) throw new Error(insErr.message);
+      if (insErr) {
+        console.error(
+          `[picks] insert failed entrant=${me} week=${week} rows=${clean.length}: ` +
+            `${describeDbError(insErr)} | payload=${JSON.stringify(
+              clean.map((c) => ({ g: c.game_id, t: c.picked_team, c: c.confidence })),
+            )}`,
+        );
+        // Put back what we removed so the save is all-or-nothing.
+        let restored = false;
+        if (replaced.length > 0) {
+          const { error: restoreErr } = await supabaseAdmin
+            .from("nfl_pickem_picks")
+            .insert(replaced);
+          restored = !restoreErr;
+          if (restoreErr) {
+            console.error(
+              `[picks] RESTORE FAILED entrant=${me} week=${week}: ${describeDbError(restoreErr)}`,
+            );
+          }
+        } else {
+          restored = true; // nothing had to be put back
+        }
+        return NextResponse.json(
+          {
+            error: restored
+              ? "Couldn't save your picks — your previous picks are untouched. Try again."
+              : "Couldn't save your picks. Please re-enter them and save again.",
+          },
+          { status: 500 },
+        );
+      }
     }
 
     return NextResponse.json({ ok: true, saved: clean.length, kept_locked: lockedExisting.length });
   } catch (err) {
+    // Flatten the cause chain onto one line — Vercel truncates multi-line logs.
+    const parts: string[] = [];
+    let cur: unknown = err;
+    for (let depth = 0; cur && depth < 5; depth += 1) {
+      parts.push(cur instanceof Error ? `${cur.name}: ${cur.message}` : String(cur));
+      cur = cur instanceof Error ? cur.cause : undefined;
+    }
+    console.error(`[picks] POST failed: ${parts.join(" <- ")}`);
     return NextResponse.json(
       { error: getErrorMessage(err, "Failed to save picks") },
       { status: 500 },
