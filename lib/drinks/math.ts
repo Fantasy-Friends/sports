@@ -380,12 +380,24 @@ export const ALCOHOL_PRESETS: ReadonlyArray<{
 
 const CONGENER_SCORE: Record<CongenerLoad, number> = { low: 0.2, med: 0.5, high: 1.0 };
 
+// IV fluids are logged here because that is what they physiologically are:
+// hydration. Standard bags are 1000 mL (33.8 oz) and 500 mL (16.9 oz).
+//
+// They deliberately do NOT reduce BAC. Alcohol elimination is enzyme-limited
+// (alcohol dehydrogenase, ~0.015 BAC/hr) and no amount of fluid speeds it up.
+// The only BAC effect is a slightly larger volume of distribution: a full
+// litre dilutes a 180 lb drinker by ~1.8% — about 0.002 BAC — and the kidneys
+// clear it within hours. Modelling that would be false precision on a number
+// people might use to decide whether to drive, so we don't. The IV shows up
+// where it genuinely helps: the hydration total and the hangover forecast.
 export const WATER_PRESETS = [
   { name: "Glass (8oz)", oz: 8 },
   { name: "Bottle (16oz)", oz: 16 },
   { name: "Big bottle (20oz)", oz: 20 },
   { name: "Yeti (32oz)", oz: 32 },
   { name: "Sip (4oz)", oz: 4 },
+  { name: "IV bag 💉 (1L)", oz: 33.8 },
+  { name: "IV half bag 💉 (500mL)", oz: 16.9 },
 ] as const;
 
 export const CAFFEINE_PRESETS = [

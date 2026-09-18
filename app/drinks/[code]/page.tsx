@@ -1310,7 +1310,11 @@ function LogTab({
         />
       </PresetPanel>
 
-      <PresetPanel id="water" title="Water" subtitle="Counts toward 18-hour hydration.">
+      <PresetPanel
+        id="water"
+        title="Water"
+        subtitle="Counts toward 18-hour hydration. IV bags count here too — they help the hangover, not the BAC."
+      >
         <PresetGrid
           presets={WATER_PRESETS.map((p) => ({
             label: p.name,
