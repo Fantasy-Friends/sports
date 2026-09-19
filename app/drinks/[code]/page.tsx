@@ -1308,6 +1308,10 @@ function LogTab({
           disabled={busyKind !== null}
           onPick={(payload) => handlePick("drink", payload)}
         />
+        <CustomPour
+          disabled={busyKind !== null}
+          onLog={(payload) => handlePick("drink", payload)}
+        />
       </PresetPanel>
 
       <PresetPanel
@@ -1585,6 +1589,99 @@ function SleepEntry({
         Log sleep
       </button>
       <span className="text-[11px] text-muted">Latest entry wins.</span>
+    </div>
+  );
+}
+
+// Exact-pour logger. The presets cover common drinks, but a real pour is
+// often "whatever came out of the bottle" — and there was no way to log 7oz
+// without stacking presets. BAC depends only on the ALCOHOL (oz x abv), never
+// on the size of the cup it's in, so this asks for exactly those two numbers
+// and shows the resulting standard-drink count before you commit.
+function CustomPour({
+  disabled, onLog,
+}: {
+  disabled: boolean;
+  onLog: (payload: Record<string, unknown>) => Promise<void>;
+}) {
+  const [oz, setOz] = useState("5");
+  const [abvPct, setAbvPct] = useState("40");
+  const [congener, setCongener] = useState<"low" | "med" | "high">("med");
+
+  const ozNum = Number(oz);
+  const abvNum = Number(abvPct);
+  const valid =
+    Number.isFinite(ozNum) && ozNum > 0 && ozNum <= 200 &&
+    Number.isFinite(abvNum) && abvNum > 0 && abvNum <= 100;
+  // Same formula the BAC engine uses: oz -> mL -> ethanol mL -> grams.
+  const grams = valid ? ozNum * 29.5735 * (abvNum / 100) * 0.789 : 0;
+  const stdDrinks = grams / 14;
+
+  return (
+    <div className="mt-3 rounded-xl border border-border/40 bg-bg/40 p-3">
+      <div className="text-[11px] uppercase tracking-wider text-muted">Custom pour</div>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted">Alcohol (oz)</span>
+          <input
+            type="number" inputMode="decimal" min="0.1" max="200" step="0.5"
+            value={oz} onChange={(e) => setOz(e.target.value)}
+            className="w-24 rounded-lg border border-border/60 bg-surface px-2 py-1.5 text-sm text-text"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted">ABV %</span>
+          <input
+            type="number" inputMode="decimal" min="0.1" max="100" step="0.5"
+            value={abvPct} onChange={(e) => setAbvPct(e.target.value)}
+            className="w-20 rounded-lg border border-border/60 bg-surface px-2 py-1.5 text-sm text-text"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted">Congener</span>
+          <select
+            value={congener}
+            onChange={(e) => setCongener(e.target.value as "low" | "med" | "high")}
+            className="rounded-lg border border-border/60 bg-surface px-2 py-1.5 text-sm text-text"
+          >
+            <option value="low">Low (vodka, gin, light beer)</option>
+            <option value="med">Med (most spirits, wine)</option>
+            <option value="high">High (whiskey, dark rum, red wine)</option>
+          </select>
+        </label>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-muted">
+          {valid ? (
+            <>
+              = <span className="font-semibold text-text">{grams.toFixed(1)}g</span> ethanol ·{" "}
+              <span className="font-semibold text-text">{stdDrinks.toFixed(2)}</span> standard drinks
+            </>
+          ) : (
+            <span className="text-danger">Enter a pour size and ABV.</span>
+          )}
+        </span>
+        <button
+          type="button"
+          disabled={disabled || !valid}
+          onClick={() =>
+            void onLog({
+              preset: `Custom ${ozNum}oz/${abvNum}%`,
+              oz: ozNum,
+              abv: abvNum / 100,
+              pct: 1,
+              congener,
+            })
+          }
+          className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-black disabled:opacity-40"
+        >
+          Log pour
+        </button>
+      </div>
+      <p className="mt-1.5 text-[10px] text-muted">
+        Enter the <em>alcohol</em> only — mixer and cup size don&rsquo;t affect BAC. A 5oz pour of
+        80-proof in a 32oz Yeti is the same 3.33 standard drinks as 5oz in a shot glass.
+      </p>
     </div>
   );
 }
