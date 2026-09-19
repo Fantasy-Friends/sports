@@ -31,6 +31,7 @@ import {
   substanceFraction,
   waterOzRecent,
   type ActivityPayload,
+  type DrinkPayload,
   type Entry,
   type EntryKind,
   type FishPayload,
@@ -211,6 +212,27 @@ export default function DrinkSessionPage() {
     }
   }
 
+  // Correct a mis-sized entry in place. The PATCH endpoint already accepted a
+  // payload; only the UI was missing, so fixing a pour used to mean deleting
+  // and re-logging — which loses the original timestamp, and timing drives the
+  // whole BAC curve.
+  async function updateEntryPayload(entryId: string, payload: Record<string, unknown>) {
+    try {
+      const res = await fetch(`/api/drinks/sessions/${code}/entries`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entryId, payload }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error ?? "Failed to update entry");
+      }
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update entry");
+    }
+  }
+
   async function updateEntryTime(entryId: string, occurredAt: Date) {
     try {
       const res = await fetch(`/api/drinks/sessions/${code}/entries`, {
@@ -300,6 +322,7 @@ export default function DrinkSessionPage() {
           onLog={logEntry}
           onDeleteEntry={deleteEntry}
           onUpdateEntryTime={updateEntryTime}
+          onUpdateEntryPayload={updateEntryPayload}
           onLeave={leaveSession}
           onEnd={endSession}
           onMerge={mergeInto}
@@ -324,6 +347,7 @@ type ViewProps = {
   onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date, guestId?: string | null) => Promise<void>;
   onDeleteEntry: (entryId: string) => Promise<void>;
   onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
+  onUpdateEntryPayload: (entryId: string, payload: Record<string, unknown>) => Promise<void>;
   onLeave: () => Promise<void>;
   onEnd: () => Promise<void>;
   onMerge: (targetCode: string) => Promise<void>;
@@ -335,7 +359,7 @@ type ViewProps = {
 };
 
 function SessionView({
-  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onLeave, onEnd, onMerge, onJoinNow, onAddGuest, onRemoveGuest, error, busyKind,
+  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onUpdateEntryPayload, onLeave, onEnd, onMerge, onJoinNow, onAddGuest, onRemoveGuest, error, busyKind,
 }: ViewProps) {
   const meMember = useMemo(
     () => state.members.find((m) => m.entrant_id === state.me && !m.left_at) ?? null,
@@ -460,6 +484,7 @@ function SessionView({
           onLog={onLog}
           onDeleteEntry={onDeleteEntry}
           onUpdateEntryTime={onUpdateEntryTime}
+          onUpdateEntryPayload={onUpdateEntryPayload}
           onAddGuest={onAddGuest}
           onRemoveGuest={onRemoveGuest}
           busyKind={busyKind}
@@ -1095,7 +1120,7 @@ function toDateTimeLocal(d: Date): string {
 }
 
 function LogTab({
-  isMember, isEnded, meMember, now, myEntries, guests, entriesByActor, onLog, onDeleteEntry, onUpdateEntryTime, onAddGuest, onRemoveGuest, busyKind,
+  isMember, isEnded, meMember, now, myEntries, guests, entriesByActor, onLog, onDeleteEntry, onUpdateEntryTime, onUpdateEntryPayload, onAddGuest, onRemoveGuest, busyKind,
 }: {
   isMember: boolean;
   isEnded: boolean;
@@ -1107,6 +1132,7 @@ function LogTab({
   onLog: (kind: EntryKind, payload: Record<string, unknown>, occurredAt: Date, guestId?: string | null) => Promise<void>;
   onDeleteEntry: (entryId: string) => Promise<void>;
   onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
+  onUpdateEntryPayload: (entryId: string, payload: Record<string, unknown>) => Promise<void>;
   onAddGuest: (displayName: string, weightLbs: number, sex: Sex) => Promise<void>;
   onRemoveGuest: (guestId: string) => Promise<void>;
   busyKind: EntryKind | null;
@@ -1459,6 +1485,7 @@ function LogTab({
                   now={now}
                   onDelete={() => onDeleteEntry(e.entry_id)}
                   onUpdateTime={(d) => onUpdateEntryTime(e.entry_id, d)}
+                  onUpdatePayload={(pl) => onUpdateEntryPayload(e.entry_id, pl)}
                 />
               ))}
           </ul>
@@ -1469,16 +1496,38 @@ function LogTab({
 }
 
 function EntryRow({
-  entry, now, onDelete, onUpdateTime,
+  entry, now, onDelete, onUpdateTime, onUpdatePayload,
 }: {
   entry: Entry;
   now: Date;
   onDelete: () => Promise<void>;
   onUpdateTime: (d: Date) => Promise<void>;
+  onUpdatePayload: (payload: Record<string, unknown>) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => toDateTimeLocal(new Date(entry.occurred_at)));
   const [saving, setSaving] = useState(false);
+
+  // Size fix — only for drinks, where oz is what drives BAC.
+  const drinkOz = entry.kind === "drink" ? Number((entry.payload as DrinkPayload)?.oz) : NaN;
+  const canResize = Number.isFinite(drinkOz) && drinkOz > 0;
+  const [sizing, setSizing] = useState(false);
+  const [ozDraft, setOzDraft] = useState(() => (canResize ? String(drinkOz) : ""));
+  const ozNum = Number(ozDraft);
+  const ozValid = Number.isFinite(ozNum) && ozNum > 0 && ozNum <= 200;
+  const abv = Number((entry.payload as DrinkPayload)?.abv) || 0;
+  const newStd = ozValid ? (ozNum * 29.5735 * abv * 0.789) / 14 : 0;
+
+  async function saveSize() {
+    if (!ozValid) return;
+    setSaving(true);
+    try {
+      await onUpdatePayload({ ...(entry.payload as Record<string, unknown>), oz: ozNum });
+      setSizing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function save() {
     const d = new Date(draft);
@@ -1525,15 +1574,57 @@ function EntryRow({
               Cancel
             </button>
           </div>
+        ) : sizing ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1 text-[11px] text-muted">
+              oz
+              <input
+                type="number" inputMode="decimal" min="0.1" max="200" step="0.5"
+                value={ozDraft}
+                onChange={(e) => setOzDraft(e.target.value)}
+                className="w-20 rounded-md border border-border/40 bg-surface/60 px-2 py-1 text-[11px]"
+              />
+            </label>
+            <span className="text-[11px] text-muted">
+              {ozValid ? `= ${newStd.toFixed(2)} std drinks` : "enter oz"}
+            </span>
+            <button
+              type="button"
+              onClick={() => void saveSize()}
+              disabled={saving || !ozValid}
+              className="rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save size"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSizing(false); setOzDraft(String(drinkOz)); }}
+              className="rounded-md border border-border/40 px-2 py-1 text-[11px] text-muted"
+            >
+              Cancel
+            </button>
+          </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="mt-0.5 block text-left text-[11px] text-muted underline decoration-dotted hover:text-text"
-            title="Click to edit the time"
-          >
-            {new Date(entry.occurred_at).toLocaleString()} · {agoLabel(entry.occurred_at, now)}
-          </button>
+          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="text-left text-[11px] text-muted underline decoration-dotted hover:text-text"
+              title="Click to edit the time"
+            >
+              {new Date(entry.occurred_at).toLocaleString()} · {agoLabel(entry.occurred_at, now)}
+            </button>
+            {canResize && (
+              <button
+                type="button"
+                onClick={() => { setSizing(true); setOzDraft(String(drinkOz)); }}
+                className="text-[11px] text-muted underline decoration-dotted hover:text-text"
+                title="Fix the pour size"
+              >
+                fix size ({drinkOz}oz)
+              </button>
+            )}
+          </div>
         )}
       </div>
       <button
