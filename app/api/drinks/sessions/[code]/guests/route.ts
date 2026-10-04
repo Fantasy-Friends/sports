@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
+import { defaultWeightLbs, isAssumedWeight } from "@/lib/drinks/math";
 
 export const revalidate = 0;
 
@@ -59,19 +60,31 @@ export async function POST(
 
     const body = (await request.json().catch(() => ({}))) as {
       display_name?: string;
-      weight_lbs?: number;
+      weight_lbs?: number | string | null;
       sex?: string;
     };
     const name = body.display_name?.trim();
-    const weight = Number(body.weight_lbs);
     const sex = parseSex(body.sex);
 
     if (!name) return NextResponse.json({ error: "display_name required" }, { status: 400 });
     if (name.length > 60) return NextResponse.json({ error: "display_name too long" }, { status: 400 });
-    if (!Number.isFinite(weight) || weight <= 0 || weight >= 800) {
-      return NextResponse.json({ error: "weight_lbs must be a number between 1 and 799" }, { status: 400 });
-    }
     if (!sex) return NextResponse.json({ error: "sex must be 'male', 'female', or 'other'" }, { status: 400 });
+
+    // Weight is optional: nobody wants to ask a guest their weight mid-party.
+    // Omit it and we assume the population average for their sex, which the UI
+    // flags as assumed so it can be corrected later. A weight that was SENT but
+    // is unusable is still an error — that's a typo, not an omission.
+    const omitted =
+      body.weight_lbs === undefined || body.weight_lbs === null || body.weight_lbs === "";
+    let weight: number;
+    if (omitted) {
+      weight = defaultWeightLbs(sex);
+    } else {
+      weight = Number(body.weight_lbs);
+      if (!Number.isFinite(weight) || weight <= 0 || weight >= 800) {
+        return NextResponse.json({ error: "weight_lbs must be a number between 1 and 799" }, { status: 400 });
+      }
+    }
 
     const session = await loadActiveSession(code);
     if (!session) return NextResponse.json({ error: "session not found" }, { status: 404 });
@@ -119,7 +132,7 @@ export async function PUT(
 
     const body = (await request.json().catch(() => ({}))) as {
       display_name?: string;
-      weight_lbs?: number;
+      weight_lbs?: number | null;
       sex?: string;
     };
 
@@ -131,9 +144,15 @@ export async function PUT(
 
     const { data: existing } = await supabaseAdmin
       .from("drink_session_guests")
-      .select("guest_id, session_id, removed_at")
+      .select("guest_id, session_id, removed_at, weight_lbs, sex")
       .eq("guest_id", guestId)
-      .maybeSingle<{ guest_id: string; session_id: string; removed_at: string | null }>();
+      .maybeSingle<{
+        guest_id: string;
+        session_id: string;
+        removed_at: string | null;
+        weight_lbs: number;
+        sex: "male" | "female" | "other";
+      }>();
     if (!existing || existing.session_id !== session.session_id) {
       return NextResponse.json({ error: "guest not found" }, { status: 404 });
     }
@@ -149,7 +168,10 @@ export async function PUT(
       }
       update.display_name = trimmed;
     }
-    if (body.weight_lbs !== undefined) {
+    // null clears an entered weight back to the assumed average.
+    if (body.weight_lbs === null) {
+      update.weight_lbs = null; // resolved below, once we know the final sex
+    } else if (body.weight_lbs !== undefined) {
       const w = Number(body.weight_lbs);
       if (!Number.isFinite(w) || w <= 0 || w >= 800) {
         return NextResponse.json({ error: "weight_lbs must be 1-799" }, { status: 400 });
@@ -160,6 +182,20 @@ export async function PUT(
       const sex = parseSex(body.sex);
       if (!sex) return NextResponse.json({ error: "sex must be 'male', 'female', or 'other'" }, { status: 400 });
       update.sex = sex;
+    }
+
+    // An assumed weight has to follow the sex it was assumed from. Correcting
+    // only the sex and leaving 199.8 lb behind would silently turn a flagged
+    // estimate into what reads as a real measurement.
+    const newSex = update.sex as "male" | "female" | "other" | undefined;
+    const clearing = update.weight_lbs === null;
+    const reDeriving =
+      update.weight_lbs === undefined
+      && newSex !== undefined
+      && newSex !== existing.sex
+      && isAssumedWeight(Number(existing.weight_lbs), existing.sex);
+    if (clearing || reDeriving) {
+      update.weight_lbs = defaultWeightLbs(newSex ?? existing.sex);
     }
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ error: "nothing to update" }, { status: 400 });

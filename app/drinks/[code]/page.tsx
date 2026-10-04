@@ -24,7 +24,9 @@ import {
   caffeineMgRemaining,
   caffeineSeries,
   calcBAC,
+  defaultWeightLbs,
   fishTally,
+  isAssumedWeight,
   hangoverForecast,
   riskLevel,
   sortLeaderboard,
@@ -169,12 +171,17 @@ export default function DrinkSessionPage() {
     }
   }
 
-  async function addGuest(displayName: string, weightLbs: number, sex: Sex) {
+  async function addGuest(displayName: string, weightLbs: number | null, sex: Sex) {
     try {
       const res = await fetch(`/api/drinks/sessions/${code}/guests`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: displayName, weight_lbs: weightLbs, sex }),
+        // Omit the weight entirely when unknown; the server fills in the average.
+        body: JSON.stringify({
+          display_name: displayName,
+          ...(weightLbs === null ? {} : { weight_lbs: weightLbs }),
+          sex,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to add guest");
@@ -352,7 +359,7 @@ type ViewProps = {
   onEnd: () => Promise<void>;
   onMerge: (targetCode: string) => Promise<void>;
   onJoinNow: () => Promise<void>;
-  onAddGuest: (displayName: string, weightLbs: number, sex: Sex) => Promise<void>;
+  onAddGuest: (displayName: string, weightLbs: number | null, sex: Sex) => Promise<void>;
   onRemoveGuest: (guestId: string) => Promise<void>;
   error: string | null;
   busyKind: EntryKind | null;
@@ -541,6 +548,16 @@ function LeaderboardTab({
     return rows;
   }, [state.members, state.guests, profileById, entriesByActor, now]);
 
+  // Guests whose BAC rests on an assumed weight — their number is a rougher
+  // estimate than everyone else's, and a leaderboard invites comparison.
+  const estimatedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const g of state.guests) {
+      if (!g.removed_at && isAssumedWeight(Number(g.weight_lbs), g.sex)) ids.add(g.guest_id);
+    }
+    return ids;
+  }, [state.guests]);
+
   // All-time rows fetched from the aggregation endpoint.
   const [allTimeRows, setAllTimeRows] = useState<LeaderboardRow[] | null>(null);
   const [allTimeError, setAllTimeError] = useState<string | null>(null);
@@ -646,7 +663,9 @@ function LeaderboardTab({
               <span className="min-w-0">
                 <span className="block truncate font-semibold text-text">{r.name}</span>
                 {r.kind === "guest" && (
-                  <span className="text-[10px] uppercase tracking-wider text-warning">Guest</span>
+                  <span className="text-[10px] uppercase tracking-wider text-warning">
+                    Guest{estimatedIds.has(r.id) && " · est. weight"}
+                  </span>
                 )}
               </span>
               <span className="font-mono text-base font-semibold text-text">{fmt(r)}</span>
@@ -667,7 +686,7 @@ function LeaderboardTab({
 function AddGuestButton({
   onAddGuest,
 }: {
-  onAddGuest: (displayName: string, weightLbs: number, sex: Sex) => Promise<void>;
+  onAddGuest: (displayName: string, weightLbs: number | null, sex: Sex) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -675,12 +694,18 @@ function AddGuestButton({
   const [sex, setSex] = useState<Sex>("male");
   const [busy, setBusy] = useState(false);
 
+  // Weight is optional — asking a guest their weight is a conversation most
+  // people won't have. Blank sends null and the server assumes the average.
+  const typedWeight = weight.trim();
+  const parsedWeight = typedWeight ? Number(typedWeight) : null;
+  const weightInvalid =
+    parsedWeight !== null && (!Number.isFinite(parsedWeight) || parsedWeight <= 0 || parsedWeight >= 800);
+
   async function submit() {
-    const w = Number(weight);
-    if (!name.trim() || !Number.isFinite(w) || w <= 0) return;
+    if (!name.trim() || weightInvalid) return;
     setBusy(true);
     try {
-      await onAddGuest(name.trim(), w, sex);
+      await onAddGuest(name.trim(), parsedWeight, sex);
       setOpen(false);
       setName("");
       setWeight("");
@@ -703,49 +728,61 @@ function AddGuestButton({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-warning/40 bg-surface/60 p-2">
-      <input
-        autoFocus
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name"
-        maxLength={60}
-        className="w-32 rounded-md border border-border/40 bg-transparent px-2 py-1 text-xs"
-      />
-      <input
-        type="number"
-        inputMode="decimal"
-        min={50}
-        max={500}
-        value={weight}
-        onChange={(e) => setWeight(e.target.value)}
-        placeholder="lb"
-        className="w-16 rounded-md border border-border/40 bg-transparent px-2 py-1 text-xs"
-      />
-      <select
-        value={sex}
-        onChange={(e) => setSex(e.target.value as Sex)}
-        className="rounded-md border border-border/40 bg-surface/60 px-2 py-1 text-xs"
-      >
-        <option value="male">M</option>
-        <option value="female">F</option>
-        <option value="other">Other</option>
-      </select>
-      <button
-        type="button"
-        onClick={() => void submit()}
-        disabled={busy || !name.trim() || !weight}
-        className="rounded-md bg-accent px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
-      >
-        {busy ? "…" : "Add"}
-      </button>
-      <button
-        type="button"
-        onClick={() => { setOpen(false); setName(""); setWeight(""); }}
-        className="rounded-md px-2 py-1 text-xs text-muted hover:text-text"
-      >
-        ✕
-      </button>
+    <div className="rounded-2xl border border-warning/40 bg-surface/60 p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name"
+          maxLength={60}
+          className="w-32 rounded-md border border-border/40 bg-transparent px-2 py-1 text-xs"
+        />
+        <input
+          type="number"
+          inputMode="decimal"
+          min={50}
+          max={500}
+          value={weight}
+          onChange={(e) => setWeight(e.target.value)}
+          placeholder="lb (optional)"
+          aria-label="Weight in pounds (optional)"
+          className={`w-28 rounded-md border bg-transparent px-2 py-1 text-xs ${
+            weightInvalid ? "border-danger/70" : "border-border/40"
+          }`}
+        />
+        <select
+          value={sex}
+          onChange={(e) => setSex(e.target.value as Sex)}
+          className="rounded-md border border-border/40 bg-surface/60 px-2 py-1 text-xs"
+        >
+          <option value="male">M</option>
+          <option value="female">F</option>
+          <option value="other">Other</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={busy || !name.trim() || weightInvalid}
+          className="rounded-md bg-accent px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? "…" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setOpen(false); setName(""); setWeight(""); }}
+          className="rounded-md px-2 py-1 text-xs text-muted hover:text-text"
+        >
+          ✕
+        </button>
+      </div>
+      <p className="mt-1.5 px-0.5 text-[10px] leading-snug text-muted">
+        {weightInvalid
+          ? "Weight must be between 1 and 799 lb — or leave it blank."
+          : typedWeight
+            ? `BAC math will use ${typedWeight} lb.`
+            : `No weight? We'll assume ${defaultWeightLbs(sex)} lb (US average) and mark it as an estimate you can fix later.`}
+      </p>
     </div>
   );
 }
@@ -1133,7 +1170,7 @@ function LogTab({
   onDeleteEntry: (entryId: string) => Promise<void>;
   onUpdateEntryTime: (entryId: string, occurredAt: Date) => Promise<void>;
   onUpdateEntryPayload: (entryId: string, payload: Record<string, unknown>) => Promise<void>;
-  onAddGuest: (displayName: string, weightLbs: number, sex: Sex) => Promise<void>;
+  onAddGuest: (displayName: string, weightLbs: number | null, sex: Sex) => Promise<void>;
   onRemoveGuest: (guestId: string) => Promise<void>;
   busyKind: EntryKind | null;
 }) {
@@ -1459,8 +1496,11 @@ function LogTab({
         </h3>
         {activeGuest ? (
           <p className="text-xs text-muted">
-            BAC math uses {activeGuest.weight_lbs} lb · {activeGuest.sex}. Entries you log while
-            this guest is selected get attributed to them.
+            BAC math uses {activeGuest.weight_lbs} lb · {activeGuest.sex}
+            {isAssumedWeight(Number(activeGuest.weight_lbs), activeGuest.sex) && (
+              <span className="text-warning"> (assumed average — no weight given)</span>
+            )}
+            . Entries you log while this guest is selected get attributed to them.
           </p>
         ) : (
           meMember && (

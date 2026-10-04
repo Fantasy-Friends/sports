@@ -88,6 +88,31 @@ export function widmarkR(sex: Sex): number {
   return WIDMARK_R_OTHER;
 }
 
+// Fallback weights for a guest added without one — US adult means (CDC NHANES
+// 2015-2018, ages 20+); "other" is the midpoint of the two.
+//
+// The decimals are load-bearing, not false precision: `isAssumedWeight` below
+// recognizes an assumed weight by value, since the guests table has no column
+// saying so. A guest who happens to weigh 200 lb and typed it still reads as
+// exact, because the default is 199.8.
+export const DEFAULT_WEIGHT_LBS: Record<Sex, number> = {
+  male: 199.8,
+  female: 170.8,
+  other: 185.3,
+};
+
+export function defaultWeightLbs(sex: Sex): number {
+  return DEFAULT_WEIGHT_LBS[sex];
+}
+
+// True when a weight looks like one we filled in rather than one someone
+// entered. Only drives labelling ("assumed"), never the math — a false
+// positive costs a misleading tag, and the fix is the same either way: edit
+// the weight.
+export function isAssumedWeight(weightLbs: number, sex: Sex): boolean {
+  return Math.abs(weightLbs - DEFAULT_WEIGHT_LBS[sex]) < 0.05;
+}
+
 export function lbsToKg(lbs: number): number {
   return lbs * 0.453592;
 }
