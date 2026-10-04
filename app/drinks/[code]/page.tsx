@@ -26,7 +26,6 @@ import {
   calcBAC,
   defaultWeightLbs,
   fishTally,
-  isAssumedWeight,
   hangoverForecast,
   riskLevel,
   sortLeaderboard,
@@ -72,7 +71,7 @@ type GuestRow = {
   guest_id: string;
   session_id: string;
   display_name: string;
-  weight_lbs: number;
+  weight_lbs: number | null;
   sex: Sex;
   added_by: string;
   created_at: string;
@@ -88,6 +87,13 @@ type SessionState = {
   is_member: boolean;
   me: string;
 };
+
+// A guest can be added without a weight. We never show a stand-in number —
+// an unknown weight reads as unknown, and the BAC curve quietly uses the
+// population average for their sex underneath.
+function weightLabel(weightLbs: number | null): string {
+  return weightLbs === null ? "weight not given" : `${weightLbs} lb`;
+}
 
 const TABS = [
   { id: "stadium", label: "Stadium" },
@@ -553,7 +559,7 @@ function LeaderboardTab({
   const estimatedIds = useMemo(() => {
     const ids = new Set<string>();
     for (const g of state.guests) {
-      if (!g.removed_at && isAssumedWeight(Number(g.weight_lbs), g.sex)) ids.add(g.guest_id);
+      if (!g.removed_at && g.weight_lbs === null) ids.add(g.guest_id);
     }
     return ids;
   }, [state.guests]);
@@ -781,7 +787,7 @@ function AddGuestButton({
           ? "Weight must be between 1 and 799 lb — or leave it blank."
           : typedWeight
             ? `BAC math will use ${typedWeight} lb.`
-            : `No weight? We'll assume ${defaultWeightLbs(sex)} lb (US average) and mark it as an estimate you can fix later.`}
+            : "Optional. Leave it blank and BAC is estimated off the US average for their sex — you can add a real weight any time."}
       </p>
     </div>
   );
@@ -858,7 +864,7 @@ type StadiumActor = {
   id: string;
   label: "You" | "Member" | "Guest";
   display_name: string;
-  weight_lbs: number;
+  weight_lbs: number | null;
   sex: Sex;
   isMe: boolean;
 };
@@ -934,7 +940,7 @@ function Stadium({
                 </p>
                 <h3 className="mt-1 text-lg font-semibold text-text">{a.display_name}</h3>
                 <p className="text-xs text-muted">
-                  {a.weight_lbs} lb · {a.sex}
+                  {weightLabel(a.weight_lbs)} · {a.sex}
                 </p>
               </div>
               <span
@@ -1283,7 +1289,7 @@ function LogTab({
                     : "border border-warning/40 bg-surface/60 text-warning hover:bg-surface/80"
                 }`}
               >
-                {g.display_name} ({g.weight_lbs} lb · {g.sex})
+                {g.display_name} ({weightLabel(g.weight_lbs)} · {g.sex})
               </button>
               <button
                 type="button"
@@ -1496,11 +1502,15 @@ function LogTab({
         </h3>
         {activeGuest ? (
           <p className="text-xs text-muted">
-            BAC math uses {activeGuest.weight_lbs} lb · {activeGuest.sex}
-            {isAssumedWeight(Number(activeGuest.weight_lbs), activeGuest.sex) && (
-              <span className="text-warning"> (assumed average — no weight given)</span>
-            )}
-            . Entries you log while this guest is selected get attributed to them.
+            {activeGuest.weight_lbs === null ? (
+              <>
+                No weight given, so BAC is a rough estimate off the{" "}
+                <span className="text-warning">US average for {activeGuest.sex}</span>.
+              </>
+            ) : (
+              <>BAC math uses {activeGuest.weight_lbs} lb · {activeGuest.sex}.</>
+            )}{" "}
+            Entries you log while this guest is selected get attributed to them.
           </p>
         ) : (
           meMember && (
@@ -2110,7 +2120,11 @@ function AuditTable({
   return (
     <div className="mt-4 rounded-xl border border-border/40 bg-surface/50 p-3">
       <p className="mb-2 text-[11px] uppercase tracking-wider text-muted">
-        Drink-by-drink math for {profile.weight_lbs} lb · {profile.sex}
+        Drink-by-drink math for{" "}
+        {profile.weight_lbs === null
+          ? `${defaultWeightLbs(profile.sex)} lb (assumed)`
+          : `${profile.weight_lbs} lb`}{" "}
+        · {profile.sex}
       </p>
       {drinkEntries.length === 0 ? (
         <p className="text-xs text-muted">No drink entries to audit.</p>

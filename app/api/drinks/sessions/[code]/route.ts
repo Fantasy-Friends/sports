@@ -38,7 +38,7 @@ type GuestRow = {
   guest_id: string;
   session_id: string;
   display_name: string;
-  weight_lbs: number;
+  weight_lbs: number | null; // null = added without one; math uses an average
   sex: "male" | "female" | "other";
   added_by: string;
   created_at: string;

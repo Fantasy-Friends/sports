@@ -2,20 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
-import { defaultWeightLbs, isAssumedWeight } from "@/lib/drinks/math";
+import { defaultWeightLbs } from "@/lib/drinks/math";
 
 export const revalidate = 0;
+
+const GUEST_COLS =
+  "guest_id, session_id, display_name, weight_lbs, sex, added_by, created_at, removed_at";
 
 type GuestRow = {
   guest_id: string;
   session_id: string;
   display_name: string;
-  weight_lbs: number;
+  weight_lbs: number | null;
   sex: "male" | "female" | "other";
   added_by: string;
   created_at: string;
   removed_at: string | null;
 };
+
+// Postgres not-null violation. Until 20261004_guest_weight_optional.sql is
+// applied, weight_lbs is still NOT NULL and a weightless guest would fail to
+// save at all — worse than the behaviour we're replacing. So we fall back to
+// writing the average and log it. Once the migration lands this never fires
+// and the whole bridge can be deleted.
+const NOT_NULL_VIOLATION = "23502";
 
 type SessionRow = {
   session_id: string;
@@ -71,15 +81,13 @@ export async function POST(
     if (!sex) return NextResponse.json({ error: "sex must be 'male', 'female', or 'other'" }, { status: 400 });
 
     // Weight is optional: nobody wants to ask a guest their weight mid-party.
-    // Omit it and we assume the population average for their sex, which the UI
-    // flags as assumed so it can be corrected later. A weight that was SENT but
-    // is unusable is still an error — that's a typo, not an omission.
+    // Unknown is stored as NULL, not as a stand-in number — the BAC math
+    // substitutes an average when it draws the curve. A weight that was SENT
+    // but is unusable is still an error; that's a typo, not an omission.
     const omitted =
       body.weight_lbs === undefined || body.weight_lbs === null || body.weight_lbs === "";
-    let weight: number;
-    if (omitted) {
-      weight = defaultWeightLbs(sex);
-    } else {
+    let weight: number | null = null;
+    if (!omitted) {
       weight = Number(body.weight_lbs);
       if (!Number.isFinite(weight) || weight <= 0 || weight >= 800) {
         return NextResponse.json({ error: "weight_lbs must be a number between 1 and 799" }, { status: 400 });
@@ -94,17 +102,28 @@ export async function POST(
       return NextResponse.json({ error: "join the session before adding a guest" }, { status: 403 });
     }
 
-    const { data, error } = await supabaseAdmin
-      .from("drink_session_guests")
-      .insert({
-        session_id: session.session_id,
-        display_name: name,
-        weight_lbs: weight,
-        sex,
-        added_by: auth.entrant.entrant_id,
-      })
-      .select("guest_id, session_id, display_name, weight_lbs, sex, added_by, created_at, removed_at")
-      .single<GuestRow>();
+    async function insertGuest(weightValue: number | null) {
+      return supabaseAdmin
+        .from("drink_session_guests")
+        .insert({
+          session_id: session!.session_id,
+          display_name: name,
+          weight_lbs: weightValue,
+          sex: sex!,
+          added_by: auth!.entrant.entrant_id,
+        })
+        .select(GUEST_COLS)
+        .single<GuestRow>();
+    }
+
+    let { data, error } = await insertGuest(weight);
+    if (error?.code === NOT_NULL_VIOLATION && weight === null) {
+      console.warn(
+        "[guests] weight_lbs is still NOT NULL — apply supabase/20261004_guest_weight_optional.sql. "
+          + "Falling back to the average so the guest can still be added.",
+      );
+      ({ data, error } = await insertGuest(defaultWeightLbs(sex)));
+    }
     if (error) throw new Error(error.message);
 
     return NextResponse.json({ guest: data });
@@ -144,15 +163,9 @@ export async function PUT(
 
     const { data: existing } = await supabaseAdmin
       .from("drink_session_guests")
-      .select("guest_id, session_id, removed_at, weight_lbs, sex")
+      .select("guest_id, session_id, removed_at")
       .eq("guest_id", guestId)
-      .maybeSingle<{
-        guest_id: string;
-        session_id: string;
-        removed_at: string | null;
-        weight_lbs: number;
-        sex: "male" | "female" | "other";
-      }>();
+      .maybeSingle<{ guest_id: string; session_id: string; removed_at: string | null }>();
     if (!existing || existing.session_id !== session.session_id) {
       return NextResponse.json({ error: "guest not found" }, { status: 404 });
     }
@@ -168,9 +181,10 @@ export async function PUT(
       }
       update.display_name = trimmed;
     }
-    // null clears an entered weight back to the assumed average.
+    // null clears the weight back to unknown. Nothing is substituted here —
+    // changing a guest's sex just changes which average the math reaches for.
     if (body.weight_lbs === null) {
-      update.weight_lbs = null; // resolved below, once we know the final sex
+      update.weight_lbs = null;
     } else if (body.weight_lbs !== undefined) {
       const w = Number(body.weight_lbs);
       if (!Number.isFinite(w) || w <= 0 || w >= 800) {
@@ -183,20 +197,6 @@ export async function PUT(
       if (!sex) return NextResponse.json({ error: "sex must be 'male', 'female', or 'other'" }, { status: 400 });
       update.sex = sex;
     }
-
-    // An assumed weight has to follow the sex it was assumed from. Correcting
-    // only the sex and leaving 199.8 lb behind would silently turn a flagged
-    // estimate into what reads as a real measurement.
-    const newSex = update.sex as "male" | "female" | "other" | undefined;
-    const clearing = update.weight_lbs === null;
-    const reDeriving =
-      update.weight_lbs === undefined
-      && newSex !== undefined
-      && newSex !== existing.sex
-      && isAssumedWeight(Number(existing.weight_lbs), existing.sex);
-    if (clearing || reDeriving) {
-      update.weight_lbs = defaultWeightLbs(newSex ?? existing.sex);
-    }
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ error: "nothing to update" }, { status: 400 });
     }
@@ -205,7 +205,7 @@ export async function PUT(
       .from("drink_session_guests")
       .update(update)
       .eq("guest_id", guestId)
-      .select("guest_id, session_id, display_name, weight_lbs, sex, added_by, created_at, removed_at")
+      .select(GUEST_COLS)
       .single<GuestRow>();
     if (error) throw new Error(error.message);
 
