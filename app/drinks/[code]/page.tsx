@@ -8,7 +8,9 @@ import {
   ACTIVITY_COLORS,
   ACTIVITY_PRESETS,
   ALCOHOL_PRESETS,
+  BURN_RATE_PRESETS,
   CAFFEINE_PRESETS,
+  DEFAULT_BURN_RATE,
   FISH_PRESETS,
   FOOD_PRESETS,
   VOMIT_PRESETS,
@@ -19,8 +21,12 @@ import {
   activeActivities,
   LEADERBOARD_METRICS,
   activeSubstances,
+  bacPerDrink,
   bacSeries,
   buildLeaderboardRow,
+  burnRateLabel,
+  drinkGrams,
+  effectiveBurnRate,
   caffeineMgRemaining,
   caffeineSeries,
   calcBAC,
@@ -63,6 +69,7 @@ type MemberRow = {
   display_name: string;
   weight_lbs: number;
   sex: Sex;
+  burn_rate: number | null; // BAC/hr; null = default
   joined_at: string;
   left_at: string | null;
 };
@@ -73,6 +80,7 @@ type GuestRow = {
   display_name: string;
   weight_lbs: number | null;
   sex: Sex;
+  burn_rate: number | null;
   added_by: string;
   created_at: string;
   removed_at: string | null;
@@ -85,8 +93,16 @@ type SessionState = {
   entries: Entry[];
   age_by_entrant: Record<string, number>;
   is_member: boolean;
+  is_admin: boolean;
   me: string;
 };
+
+// Postgres numeric can arrive as a string; null stays null (= default rate).
+function toBurnRate(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 // A guest can be added without a weight. We never show a stand-in number —
 // an unknown weight reads as unknown, and the BAC curve quietly uses the
@@ -210,6 +226,23 @@ export default function DrinkSessionPage() {
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to remove guest");
+    }
+  }
+
+  async function setBurnRate(target: { entrant_id: string } | { guest_id: string }, burnRate: number | null) {
+    try {
+      const res = await fetch(`/api/drinks/sessions/${code}/burn-rate`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...target, burn_rate: burnRate }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error ?? "Failed to set burn rate");
+      }
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to set burn rate");
     }
   }
 
@@ -342,6 +375,7 @@ export default function DrinkSessionPage() {
           onJoinNow={joinNow}
           onAddGuest={addGuest}
           onRemoveGuest={removeGuest}
+          onSetBurnRate={setBurnRate}
           error={error}
           busyKind={busyKind}
         />
@@ -367,12 +401,18 @@ type ViewProps = {
   onJoinNow: () => Promise<void>;
   onAddGuest: (displayName: string, weightLbs: number | null, sex: Sex) => Promise<void>;
   onRemoveGuest: (guestId: string) => Promise<void>;
+  onSetBurnRate: SetBurnRate;
   error: string | null;
   busyKind: EntryKind | null;
 };
 
+type SetBurnRate = (
+  target: { entrant_id: string } | { guest_id: string },
+  burnRate: number | null,
+) => Promise<void>;
+
 function SessionView({
-  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onUpdateEntryPayload, onLeave, onEnd, onMerge, onJoinNow, onAddGuest, onRemoveGuest, error, busyKind,
+  state, now, tab, onTab, onLog, onDeleteEntry, onUpdateEntryTime, onUpdateEntryPayload, onLeave, onEnd, onMerge, onJoinNow, onAddGuest, onRemoveGuest, onSetBurnRate, error, busyKind,
 }: ViewProps) {
   const meMember = useMemo(
     () => state.members.find((m) => m.entrant_id === state.me && !m.left_at) ?? null,
@@ -392,6 +432,7 @@ function SessionView({
         display_name: m.display_name,
         weight_lbs: m.weight_lbs,
         sex: m.sex,
+        burn_rate: toBurnRate(m.burn_rate),
       });
     }
     for (const g of state.guests) {
@@ -400,6 +441,7 @@ function SessionView({
         display_name: g.display_name,
         weight_lbs: g.weight_lbs,
         sex: g.sex,
+        burn_rate: toBurnRate(g.burn_rate),
       });
     }
     return map;
@@ -482,7 +524,13 @@ function SessionView({
       )}
 
       {tab === "stadium" && (
-        <Stadium state={state} now={now} profileById={profileById} entriesByActor={entriesByActor} />
+        <Stadium
+          state={state}
+          now={now}
+          profileById={profileById}
+          entriesByActor={entriesByActor}
+          onSetBurnRate={onSetBurnRate}
+        />
       )}
 
       {tab === "log" && (
@@ -867,16 +915,20 @@ type StadiumActor = {
   weight_lbs: number | null;
   sex: Sex;
   isMe: boolean;
+  // Who may change this person's burn rate — mirrors the burn-rate API.
+  canEditBurnRate: boolean;
 };
 
 function Stadium({
-  state, now, profileById, entriesByActor,
+  state, now, profileById, entriesByActor, onSetBurnRate,
 }: {
   state: SessionState;
   now: Date;
   profileById: Map<string, MemberProfile>;
   entriesByActor: Map<string, Entry[]>;
+  onSetBurnRate: SetBurnRate;
 }) {
+  const isCreator = state.session.created_by === state.me;
   const actors: StadiumActor[] = [
     ...state.members
       .filter((m) => !m.left_at)
@@ -887,6 +939,7 @@ function Stadium({
         weight_lbs: m.weight_lbs,
         sex: m.sex,
         isMe: m.entrant_id === state.me,
+        canEditBurnRate: m.entrant_id === state.me || isCreator || state.is_admin,
       })),
     ...state.guests
       .filter((g) => !g.removed_at)
@@ -897,6 +950,7 @@ function Stadium({
         weight_lbs: g.weight_lbs,
         sex: g.sex,
         isMe: false,
+        canEditBurnRate: state.is_member || state.is_admin,
       })),
   ];
 
@@ -942,6 +996,13 @@ function Stadium({
                 <p className="text-xs text-muted">
                   {weightLabel(a.weight_lbs)} · {a.sex}
                 </p>
+                <BurnRateControl
+                  rate={profile.burn_rate ?? null}
+                  canEdit={a.canEditBurnRate}
+                  onChange={(rate) =>
+                    onSetBurnRate(isGuest ? { guest_id: a.id } : { entrant_id: a.id }, rate)
+                  }
+                />
               </div>
               <span
                 className="rounded-lg px-3 py-1.5 text-xs font-bold"
@@ -1013,6 +1074,54 @@ function Stadium({
         );
       })}
     </section>
+  );
+}
+
+// Burn-off rate: how fast this person clears alcohol. Shown read-only to
+// people who can't change it; a preset picker for those who can.
+function BurnRateControl({
+  rate, canEdit, onChange,
+}: {
+  rate: number | null;
+  canEdit: boolean;
+  onChange: (rate: number | null) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  if (!canEdit) {
+    return (
+      <p className="text-xs text-muted" title="Alcohol burn-off rate (BAC per hour)">
+        burn {burnRateLabel(rate)}
+      </p>
+    );
+  }
+  const isPreset = rate === null || BURN_RATE_PRESETS.some((p) => Math.abs(p.rate - rate) < 1e-9);
+  return (
+    <label className="mt-0.5 flex items-center gap-1 text-xs text-muted" title="Alcohol burn-off rate (BAC per hour)">
+      burn
+      <select
+        value={rate === null ? "" : String(rate)}
+        disabled={saving}
+        onChange={async (e) => {
+          setSaving(true);
+          try {
+            await onChange(e.target.value === "" ? null : Number(e.target.value));
+          } finally {
+            setSaving(false);
+          }
+        }}
+        className="rounded-md border border-border/40 bg-surface/55 px-1 py-0.5 text-xs text-text"
+      >
+        <option value="">Default · {DEFAULT_BURN_RATE.toFixed(3)}/hr</option>
+        {BURN_RATE_PRESETS.map((p) => (
+          <option key={p.rate} value={String(p.rate)}>
+            {p.label} · {p.rate.toFixed(3)}/hr ({p.hint})
+          </option>
+        ))}
+        {!isPreset && rate !== null && (
+          <option value={String(rate)}>Custom · {rate.toFixed(3)}/hr</option>
+        )}
+      </select>
+    </label>
   );
 }
 
@@ -2000,12 +2109,12 @@ function MemberDecayCard({
     .filter((e) => e.kind === "caffeine")
     .map((e) => new Date(e.occurred_at).getTime());
 
-  // For each drink, compute BAC just after the drink lands (1 ms past) so the
-  // chart's dot markers show the post-drink value, and the audit table can
-  // render the step in BAC each entry produced.
+  // Dot markers sit on the curve at each drink's time. BAC no longer steps up
+  // at the dot — the drink absorbs over the next ~30-60 min, so the curve
+  // rises after it.
   const bacAtDrink = drinks.map((t) => ({
     t,
-    bac: calcBAC(profile, entries, new Date(t + 1)),
+    bac: calcBAC(profile, entries, new Date(t)),
   }));
   const cafAtMarker = cafMarkers.map((t) => ({
     t,
@@ -2046,7 +2155,7 @@ function MemberDecayCard({
 
       <div className="mt-4 grid gap-3">
         <DecayChart
-          label="BAC (Widmark + 0.015/hr metabolism)"
+          label={`BAC (Widmark · ~30-60 min absorption · burn ${effectiveBurnRate(profile.burn_rate).toFixed(3)}/hr)`}
           color="#ef4444"
           unit=""
           decimals={3}
@@ -2109,11 +2218,7 @@ function AuditTable({
     .map((e) => ({
       e,
       t: new Date(e.occurred_at).getTime(),
-      grams: (() => {
-        const p = e.payload as { oz?: number; abv?: number; pct?: number };
-        if (typeof p.oz !== "number" || typeof p.abv !== "number") return 0;
-        return p.oz * 29.5735 * p.abv * (p.pct ?? 1) * 0.789;
-      })(),
+      grams: drinkGrams(e.payload),
     }))
     .sort((a, b) => a.t - b.t);
 
@@ -2124,7 +2229,11 @@ function AuditTable({
         {profile.weight_lbs === null
           ? `${defaultWeightLbs(profile.sex)} lb (assumed)`
           : `${profile.weight_lbs} lb`}{" "}
-        · {profile.sex}
+        · {profile.sex} · burn {burnRateLabel(profile.burn_rate)}
+      </p>
+      <p className="mb-2 text-[11px] text-muted">
+        &ldquo;Adds&rdquo; is what the drink is worth once fully absorbed, before
+        any burn-off. BAC climbs toward it over ~30-60 min rather than jumping.
       </p>
       {drinkEntries.length === 0 ? (
         <p className="text-xs text-muted">No drink entries to audit.</p>
@@ -2134,27 +2243,30 @@ function AuditTable({
             <tr>
               <th className="py-1 pr-2">Time</th>
               <th className="py-1 pr-2">+ grams</th>
-              <th className="py-1 pr-2">BAC just before</th>
-              <th className="py-1 pr-2">BAC just after</th>
+              <th className="py-1 pr-2">Adds</th>
+              <th className="py-1 pr-2">BAC at drink</th>
+              <th className="py-1 pr-2">BAC 45 min later</th>
             </tr>
           </thead>
           <tbody>
             {drinkEntries.map((d) => {
-              const before = calcBAC(profile, entries, new Date(d.t - 1));
-              const after = calcBAC(profile, entries, new Date(d.t + 1));
+              const atDrink = calcBAC(profile, entries, new Date(d.t));
+              const later = calcBAC(profile, entries, new Date(d.t + 45 * 60_000));
               return (
                 <tr key={d.e.entry_id} className="border-t border-border/20">
                   <td className="py-1 pr-2">{new Date(d.t).toLocaleString()}</td>
                   <td className="py-1 pr-2">+{d.grams.toFixed(1)} g</td>
-                  <td className="py-1 pr-2">{before.toFixed(3)}</td>
+                  <td className="py-1 pr-2">+{bacPerDrink(profile, d.grams).toFixed(3)}</td>
+                  <td className="py-1 pr-2">{atDrink.toFixed(3)}</td>
                   <td className="py-1 pr-2 font-semibold" style={{ color: "#ef4444" }}>
-                    {after.toFixed(3)}
+                    {later.toFixed(3)}
                   </td>
                 </tr>
               );
             })}
             <tr className="border-t border-border/20 text-muted">
               <td className="py-1 pr-2">Now ({now.toLocaleTimeString()})</td>
+              <td className="py-1 pr-2">—</td>
               <td className="py-1 pr-2">—</td>
               <td className="py-1 pr-2">—</td>
               <td className="py-1 pr-2 font-semibold" style={{ color: "#ef4444" }}>

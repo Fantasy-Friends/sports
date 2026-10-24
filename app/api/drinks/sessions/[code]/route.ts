@@ -20,6 +20,7 @@ type MemberRow = {
   display_name: string;
   weight_lbs: number;
   sex: "male" | "female" | "other";
+  burn_rate: number | null;
   joined_at: string;
   left_at: string | null;
 };
@@ -40,6 +41,7 @@ type GuestRow = {
   display_name: string;
   weight_lbs: number | null; // null = added without one; math uses an average
   sex: "male" | "female" | "other";
+  burn_rate: number | null;
   added_by: string;
   created_at: string;
   removed_at: string | null;
@@ -69,12 +71,12 @@ export async function GET(
     const [{ data: members }, { data: guests }, { data: entries }] = await Promise.all([
       supabaseAdmin
         .from("drink_session_members")
-        .select("session_id, entrant_id, display_name, weight_lbs, sex, joined_at, left_at")
+        .select("session_id, entrant_id, display_name, weight_lbs, sex, burn_rate, joined_at, left_at")
         .eq("session_id", session.session_id)
         .order("joined_at", { ascending: true }),
       supabaseAdmin
         .from("drink_session_guests")
-        .select("guest_id, session_id, display_name, weight_lbs, sex, added_by, created_at, removed_at")
+        .select("guest_id, session_id, display_name, weight_lbs, sex, burn_rate, added_by, created_at, removed_at")
         .eq("session_id", session.session_id)
         .order("created_at", { ascending: true }),
       supabaseAdmin
@@ -112,6 +114,7 @@ export async function GET(
       entries: (entries ?? []) as EntryRow[],
       age_by_entrant: ageByEntrant,
       is_member: isMember,
+      is_admin: auth.entrant.is_admin,
       me: auth.entrant.entrant_id,
     });
   } catch (err) {

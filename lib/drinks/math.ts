@@ -5,7 +5,6 @@
 export const WIDMARK_R_MALE = 0.68;
 export const WIDMARK_R_FEMALE = 0.55;
 export const WIDMARK_R_OTHER = 0.61;
-export const ALCOHOL_METABOLISM = 0.015; // BAC/hr
 export const CAFFEINE_HALF_LIFE_HOURS = 5;
 export const CAFFEINE_ONSET_MINUTES = 30; // peak plasma at ~30-45 min after oral intake
 export const HYDRATION_GOAL_OZ = 100;
@@ -49,8 +48,50 @@ export type ActivityPayload = {
   notes?: string;
 };
 
+// ─── Burn-off (elimination) rate ───────────────────────────────────────────
+// BAC points removed per hour. The textbook 0.015 is the low end of what's
+// measured: typical drinkers average ~0.018-0.020, and regular heavy drinkers
+// run 0.025-0.035 because the liver up-regulates. Using 0.015 for everyone
+// badly overstates multi-day sessions (it had the Merica crew at 0.43), so
+// the rate is set per person, by someone who knows how much they drink.
+// null = never set → DEFAULT_BURN_RATE.
+export const DEFAULT_BURN_RATE = 0.018;
+export const MIN_BURN_RATE = 0.010;
+export const MAX_BURN_RATE = 0.040;
+
+export const BURN_RATE_PRESETS: ReadonlyArray<{ rate: number; label: string; hint: string }> = [
+  { rate: 0.015, label: "Light",      hint: "rarely drinks" },
+  { rate: 0.018, label: "Average",    hint: "default" },
+  { rate: 0.022, label: "Regular",    hint: "most weekends" },
+  { rate: 0.026, label: "Heavy",      hint: "several nights a week" },
+  { rate: 0.030, label: "Very heavy", hint: "daily" },
+];
+
+export function isValidBurnRate(rate: unknown): rate is number {
+  return typeof rate === "number" && Number.isFinite(rate)
+    && rate >= MIN_BURN_RATE && rate <= MAX_BURN_RATE;
+}
+
+export function effectiveBurnRate(rate: number | null | undefined): number {
+  return isValidBurnRate(rate) ? rate : DEFAULT_BURN_RATE;
+}
+
+export function burnRateLabel(rate: number | null | undefined): string {
+  const r = effectiveBurnRate(rate);
+  const preset = BURN_RATE_PRESETS.find((p) => Math.abs(p.rate - r) < 1e-9);
+  return preset ? `${preset.label} · ${r.toFixed(3)}/hr` : `${r.toFixed(3)}/hr`;
+}
+
+// ─── Absorption ────────────────────────────────────────────────────────────
+// A drink doesn't hit the bloodstream the moment it's logged. Each drink goes
+// into a stomach/gut pool that empties into the blood by first-order kinetics:
+// k = 3/hr is a ~14 min half-time, so ~78% is absorbed at 30 min and ~95% at
+// 60 min — the usual 30-60 min to peak for drinks taken over a normal pace.
+// Elimination only acts on what has been absorbed.
+export const ABSORPTION_RATE_PER_HR = 3;
+
 // While an activity is in progress, ethanol burn rate is boosted by this
-// multiplier (over baseline 0.015 BAC/hr). Conservative values picked from
+// multiplier (over the person's baseline burn rate). Conservative values picked from
 // the modest range supported by Pikaar 1988 / Kechagias 2017 style studies.
 export const ACTIVITY_METABOLISM_MULTIPLIER: Record<ActivityIntensity, number> = {
   light: 1.05,
@@ -83,6 +124,8 @@ export type MemberProfile = {
   // time, so the UI can keep showing "unknown" instead of inventing a number.
   weight_lbs: number | null;
   sex: Sex;
+  // BAC/hr burn-off; null/undefined = DEFAULT_BURN_RATE (see effectiveBurnRate).
+  burn_rate?: number | null;
 };
 
 export function widmarkR(sex: Sex): number {
@@ -167,43 +210,58 @@ function integrateBurn(
   return totalGrams;
 }
 
-// Grams of ethanol still in the body for a given member at `now`.
+// ─── Alcohol simulation ────────────────────────────────────────────────────
 //
-// The body has ONE elimination rate (~0.015 BAC/hr ≈ a few grams/hr depending
-// on weight/sex), not one per drink. We integrate sequentially: accumulate
-// grams as each drink comes in, subtract the constant metabolism rate over
-// the gaps between events, then subtract once more from the last event to
-// `now`. During logged activity windows the burn rate gets a small
-// intensity-dependent boost (see integrateBurn).
+// Two pools, integrated forward in time from the first drink:
+//   gut   — ethanol swallowed but not yet absorbed. Each drink adds its grams
+//           here; it empties into the blood at ABSORPTION_RATE_PER_HR
+//           (first-order), so BAC ramps up over ~30-60 min instead of jumping.
+//   blood — absorbed ethanol, spread over the Widmark volume (kg × r). The
+//           body has ONE elimination rate (the person's burn rate, zero-order,
+//           boosted during logged activity — see integrateBurn), not one per
+//           drink, and it only acts on what's been absorbed.
 //
-// Vomit events expel a portion of *unabsorbed* stomach alcohol. We track a
-// virtual per-drink stomach pool (using a 60-min absorption window) purely
-// to compute that reduction — the bloodstream still uses the existing
-// instant-absorption assumption so the BAC chart stays consistent.
-export function alcoholGramsRemaining(
-  profile: MemberProfile,
-  entries: Entry[],
-  now: Date,
-): number {
+// Vomit events expel a fraction of whatever is still in the gut; alcohol
+// that's already absorbed can't be thrown back up.
+//
+// Long quiet stretches (nothing left to absorb) are skipped in one exact jump,
+// so a session from months ago costs about the same as a fresh one.
+
+const ABSORB_STEP_MS = 60_000;        // 1-min steps while absorbing
+const DECLINE_STEP_MS = 5 * 60_000;   // coarser steps while only burning off
+const GUT_EPSILON_G = 0.01;           // below this the gut counts as empty
+
+type AlcoholEvent =
+  | { kind: "drink"; t: number; grams: number }
+  | { kind: "vomit"; t: number; severity: 1 | 2 | 3 };
+
+export function drinkGrams(payload: Record<string, unknown> | null | undefined): number {
+  const p = payload as Partial<DrinkPayload> | null | undefined;
+  if (!p || typeof p.oz !== "number" || typeof p.abv !== "number") return 0;
+  const pct = typeof p.pct === "number" ? p.pct : 1;
+  const grams = p.oz * 29.5735 * p.abv * pct * 0.789;
+  return Number.isFinite(grams) && grams > 0 ? grams : 0;
+}
+
+// Grams of ethanol that raise this person's BAC by 1.0 (g/dL basis).
+function widmarkVolume(profile: MemberProfile): number {
   const weightKg = lbsToKg(effectiveWeightLbs(profile.weight_lbs, profile.sex));
-  const r = widmarkR(profile.sex);
-  const metabRate = ALCOHOL_METABOLISM * weightKg * r * 10; // grams/hr
+  return weightKg * widmarkR(profile.sex) * 10;
+}
 
-  const nowMs = now.getTime();
-  const windows = collectActivityWindows(entries);
+// BAC a drink of `grams` adds once fully absorbed, before any burn-off.
+export function bacPerDrink(profile: MemberProfile, grams: number): number {
+  const vd = widmarkVolume(profile);
+  return vd > 0 ? grams / vd : 0;
+}
 
-  type Ev =
-    | { kind: "drink"; t: number; grams: number }
-    | { kind: "vomit"; t: number; severity: 1 | 2 | 3 };
-  const events: Ev[] = [];
+function collectAlcoholEvents(entries: Entry[]): AlcoholEvent[] {
+  const events: AlcoholEvent[] = [];
   for (const e of entries) {
     const t = new Date(e.occurred_at).getTime();
-    if (!Number.isFinite(t) || t > nowMs) continue;
+    if (!Number.isFinite(t)) continue;
     if (e.kind === "drink") {
-      const p = e.payload as DrinkPayload;
-      if (!p || typeof p.oz !== "number" || typeof p.abv !== "number") continue;
-      const pct = typeof p.pct === "number" ? p.pct : 1;
-      const grams = p.oz * 29.5735 * p.abv * pct * 0.789;
+      const grams = drinkGrams(e.payload);
       if (grams > 0) events.push({ kind: "drink", t, grams });
     } else if (e.kind === "vomit") {
       const p = e.payload as Partial<VomitPayload>;
@@ -212,48 +270,119 @@ export function alcoholGramsRemaining(
       events.push({ kind: "vomit", t, severity });
     }
   }
-  if (events.length === 0) return 0;
-  events.sort((a, b) => a.t - b.t);
+  return events.sort((a, b) => a.t - b.t);
+}
 
-  // stomach pool: per-drink "grams that could still be vomited out"
-  // gOriginal × (1 - ageMin/60) − gExpelled, clamped at 0.
-  const stomach: Array<{ t: number; gOriginal: number; gExpelled: number }> = [];
+export type AlcoholRun = {
+  samples: number[];       // BAC at each requested sample time (same order)
+  peakBac: number;         // highest BAC reached up to `untilMs`
+  hoursOver: number;       // hours spent above `threshold` up to `untilMs`
+};
 
-  let grams = 0;
-  let lastT = events[0].t;
-  for (const ev of events) {
-    const burn = integrateBurn(windows, metabRate, lastT, ev.t);
-    grams = Math.max(0, grams - burn);
+// One forward pass. `sampleTimes` may be in any order; the run extends to
+// max(untilMs, last sample). Peak / time-over stats only count up to untilMs.
+export function runAlcohol(
+  profile: MemberProfile,
+  entries: Entry[],
+  untilMs: number,
+  sampleTimes: number[] = [],
+  threshold = 0.08,
+): AlcoholRun {
+  const samples = new Array<number>(sampleTimes.length).fill(0);
+  const vd = widmarkVolume(profile);
+  const events = collectAlcoholEvents(entries);
+  if (vd <= 0 || events.length === 0) return { samples, peakBac: 0, hoursOver: 0 };
 
-    if (ev.kind === "drink") {
-      grams += ev.grams;
-      stomach.push({ t: ev.t, gOriginal: ev.grams, gExpelled: 0 });
-    } else {
-      const mult = VOMIT_EXPEL_FRACTION[ev.severity];
-      for (const d of stomach) {
-        const ageMin = (ev.t - d.t) / 60_000;
-        if (ageMin < 0 || ageMin >= ABSORPTION_WINDOW_MIN) continue;
-        const stillUnabsorbed = d.gOriginal * (1 - ageMin / ABSORPTION_WINDOW_MIN);
-        const inStomach = Math.max(0, stillUnabsorbed - d.gExpelled);
-        if (inStomach <= 0) continue;
-        const expelled = inStomach * mult;
-        d.gExpelled += expelled;
-        grams = Math.max(0, grams - expelled);
+  const ratePerHr = effectiveBurnRate(profile.burn_rate) * vd; // grams/hr
+  const windows = collectActivityWindows(entries);
+  const kPerMs = ABSORPTION_RATE_PER_HR / 3_600_000;
+  const thresholdG = threshold * vd;
+
+  const order = sampleTimes.map((t, i) => [t, i] as const).sort((a, b) => a[0] - b[0]);
+  const endMs = Math.max(untilMs, order.length ? order[order.length - 1][0] : untilMs);
+
+  let gut = 0;
+  let blood = 0;
+  let peakG = 0;
+  let overMs = 0;
+  let t = events[0].t;
+  let ei = 0;
+  let si = 0;
+  // Samples before the first drink read 0.
+  while (si < order.length && order[si][0] < t) si += 1;
+
+  // Advance both pools from `t` to `to` in one sub-step.
+  function step(to: number) {
+    const dt = to - t;
+    if (dt <= 0) return;
+    if (gut > 0) {
+      const absorbed = gut * (1 - Math.exp(-kPerMs * dt));
+      gut -= absorbed;
+      blood += absorbed;
+      if (gut < GUT_EPSILON_G) { blood += gut; gut = 0; }
+    }
+    const before = blood;
+    blood = Math.max(0, blood - integrateBurn(windows, ratePerHr, t, to));
+    if (t < untilMs) {
+      const countedEnd = Math.min(to, untilMs);
+      if (blood > peakG && to <= untilMs) peakG = blood;
+      // Time over threshold: exact enough to interpolate linearly within a step.
+      if (before > thresholdG && blood > thresholdG) overMs += countedEnd - t;
+      else if (before > thresholdG || blood > thresholdG) {
+        const frac = (Math.max(before, blood) - thresholdG) / Math.max(1e-9, Math.abs(before - blood));
+        overMs += Math.min(1, frac) * (countedEnd - t);
       }
     }
-    lastT = ev.t;
+    t = to;
   }
 
-  const tailBurn = integrateBurn(windows, metabRate, lastT, nowMs);
-  return Math.max(0, grams - tailBurn);
+  for (;;) {
+    // Apply every event at exactly time t.
+    while (ei < events.length && events[ei].t <= t) {
+      const ev = events[ei];
+      if (ev.kind === "drink") gut += ev.grams;
+      else gut -= gut * VOMIT_EXPEL_FRACTION[ev.severity];
+      ei += 1;
+    }
+    // Read every sample at exactly time t.
+    while (si < order.length && order[si][0] <= t) {
+      samples[order[si][1]] = blood / vd;
+      si += 1;
+    }
+    // Events past the end of the run can't affect anything we report.
+    if (t >= endMs && si >= order.length) break;
+
+    const nextEvent = ei < events.length ? events[ei].t : Number.POSITIVE_INFINITY;
+    const nextSample = si < order.length ? order[si][0] : Number.POSITIVE_INFINITY;
+    // Never step across untilMs, so the peak / time-over stats cut off exactly.
+    const stop = untilMs > t ? Math.min(endMs, untilMs) : endMs;
+    const horizon = Math.min(nextEvent, nextSample, stop);
+
+    if (gut > 0) {
+      step(Math.min(horizon, t + ABSORB_STEP_MS));
+    } else if (blood > 0) {
+      step(Math.min(horizon, t + DECLINE_STEP_MS));
+    } else {
+      // Nothing in the body: jump straight to the next thing that matters.
+      t = Math.max(t, horizon);
+    }
+  }
+
+  return { samples, peakBac: peakG / vd, hoursOver: overMs / 3_600_000 };
+}
+
+// Grams of ethanol absorbed into the blood (not yet burned off) at `now`.
+export function alcoholGramsRemaining(
+  profile: MemberProfile,
+  entries: Entry[],
+  now: Date,
+): number {
+  return calcBAC(profile, entries, now) * widmarkVolume(profile);
 }
 
 export function calcBAC(profile: MemberProfile, entries: Entry[], now: Date): number {
-  const grams = alcoholGramsRemaining(profile, entries, now);
-  const weightKg = lbsToKg(effectiveWeightLbs(profile.weight_lbs, profile.sex));
-  const r = widmarkR(profile.sex);
-  if (weightKg <= 0 || r <= 0) return 0;
-  return grams / (weightKg * r * 10);
+  const ms = now.getTime();
+  return runAlcohol(profile, entries, ms, [ms]).samples[0];
 }
 
 export function caffeineMgRemaining(entries: Entry[], now: Date): number {
@@ -409,7 +538,7 @@ const CONGENER_SCORE: Record<CongenerLoad, number> = { low: 0.2, med: 0.5, high:
 // hydration. Standard bags are 1000 mL (33.8 oz) and 500 mL (16.9 oz).
 //
 // They deliberately do NOT reduce BAC. Alcohol elimination is enzyme-limited
-// (alcohol dehydrogenase, ~0.015 BAC/hr) and no amount of fluid speeds it up.
+// (alcohol dehydrogenase, ~0.015-0.030 BAC/hr) and no amount of fluid speeds it up.
 // The only BAC effect is a slightly larger volume of distribution: a full
 // litre dilutes a 180 lb drinker by ~1.8% — about 0.002 BAC — and the kidneys
 // clear it within hours. Modelling that would be false precision on a number
@@ -590,8 +719,8 @@ export type SleepPayload = {
 // Severity 1 (mild) → expels ~30 % of stomach-resident alcohol
 // Severity 2 (normal) → ~50 %
 // Severity 3 (heavy) → ~70 % (some alcohol always escapes; pyloric sphincter etc.)
-// Only alcohol consumed within the last 60 min counts; older drinks have
-// already absorbed into the bloodstream and can't be vomited back.
+// Only the not-yet-absorbed gut pool counts (see runAlcohol); alcohol already
+// in the bloodstream can't be vomited back.
 
 export type VomitPayload = {
   preset?: string;
@@ -606,7 +735,6 @@ export const VOMIT_PRESETS: ReadonlyArray<{ name: string; severity: 1 | 2 | 3 }>
 ];
 
 const VOMIT_EXPEL_FRACTION: Record<1 | 2 | 3, number> = { 1: 0.30, 2: 0.50, 3: 0.70 };
-const ABSORPTION_WINDOW_MIN = 60;
 
 // ─── Fish catches (sober-friendly tracking) ─────────────────────────────────
 // One entry per catch. Species presets tuned to northern Minnesota lakes.
@@ -713,22 +841,10 @@ function bucketForScore(s: number): { bucket: HangoverForecast["bucket"]; color:
   return       { bucket: "brutal",  color: "#ef4444" };
 }
 
+// Highest BAC reached up to `now`, tracked continuously through the run (a
+// fixed sampling grid used to miss the peak, and skipped the latest drinks).
 export function peakBacOf(profile: MemberProfile, entries: Entry[], now: Date): number {
-  // Sample every 5 min from the first drink to `now` (peak can't lie outside).
-  let earliestDrink = Number.POSITIVE_INFINITY;
-  for (const e of entries) {
-    if (e.kind !== "drink") continue;
-    const t = new Date(e.occurred_at).getTime();
-    if (Number.isFinite(t) && t < earliestDrink) earliestDrink = t;
-  }
-  if (!Number.isFinite(earliestDrink)) return 0;
-  const step = 5 * 60_000;
-  let peak = 0;
-  for (let t = earliestDrink; t <= now.getTime(); t += step) {
-    const bac = calcBAC(profile, entries, new Date(t));
-    if (bac > peak) peak = bac;
-  }
-  return peak;
+  return runAlcohol(profile, entries, now.getTime()).peakBac;
 }
 
 export function hangoverForecast(
@@ -762,21 +878,8 @@ export function hangoverForecast(
     }
   }
   const avgCongener = drinkCount > 0 ? congenerScore / drinkCount : 0;
-  const peakBac = peakBacOf(profile, entries, now);
-
-  // Time over 0.08 (rough proxy via the same 5-min sampling)
-  let hoursOver08 = 0;
-  if (Number.isFinite(firstDrinkMs)) {
-    const step = 5 * 60_000;
-    let samplesOver = 0;
-    let samples = 0;
-    for (let t = firstDrinkMs; t <= now.getTime(); t += step) {
-      const bac = calcBAC(profile, entries, new Date(t));
-      if (bac > 0.08) samplesOver += 1;
-      samples += 1;
-    }
-    if (samples > 0) hoursOver08 = (samplesOver * step) / 3600_000;
-  }
+  // Peak and time over 0.08 both come out of one pass through the BAC model.
+  const { peakBac, hoursOver: hoursOver08 } = runAlcohol(profile, entries, now.getTime(), [], 0.08);
 
   // Dehydration: water consumed in the same window vs. a generous goal
   const sessionHours = Number.isFinite(firstDrinkMs)
@@ -959,11 +1062,10 @@ export function bacSeries(
   stepMinutes = 5,
 ): SeriesPoint[] {
   const stepMs = stepMinutes * 60_000;
-  const out: SeriesPoint[] = [];
-  for (let t = fromMs; t <= toMs; t += stepMs) {
-    out.push({ t, value: calcBAC(profile, entries, new Date(t)) });
-  }
-  return out;
+  const times: number[] = [];
+  for (let t = fromMs; t <= toMs; t += stepMs) times.push(t);
+  const { samples } = runAlcohol(profile, entries, toMs, times);
+  return times.map((t, i) => ({ t, value: samples[i] }));
 }
 
 export function caffeineSeries(

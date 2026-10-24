@@ -17,6 +17,7 @@ type SessionRow = {
 type ProfileRow = {
   weight_lbs: number;
   sex: "male" | "female" | "other";
+  burn_rate: number | null;
   display_name: string | null;
 };
 
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabaseAdmin
       .from("drink_profiles")
-      .select("weight_lbs, sex, display_name")
+      .select("weight_lbs, sex, burn_rate, display_name")
       .eq("entrant_id", session.entrant.entrant_id)
       .maybeSingle<ProfileRow>();
 
@@ -105,6 +106,7 @@ export async function POST(request: NextRequest) {
         display_name: profile.display_name ?? session.entrant.entrant_name,
         weight_lbs: profile.weight_lbs,
         sex: profile.sex,
+        burn_rate: profile.burn_rate ?? null,
       });
     if (memberErr) throw new Error(memberErr.message);
 

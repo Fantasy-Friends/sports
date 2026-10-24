@@ -20,6 +20,7 @@ type MemberRow = {
   display_name: string;
   weight_lbs: number;
   sex: Sex;
+  burn_rate: number | null;
   joined_at: string;
 };
 
@@ -45,7 +46,7 @@ export async function GET() {
     const [{ data: members }, { data: entries }] = await Promise.all([
       supabaseAdmin
         .from("drink_session_members")
-        .select("session_id, entrant_id, display_name, weight_lbs, sex, joined_at"),
+        .select("session_id, entrant_id, display_name, weight_lbs, sex, burn_rate, joined_at"),
       supabaseAdmin
         .from("drink_session_entries")
         .select("entry_id, session_id, entrant_id, guest_id, kind, payload, occurred_at")
@@ -65,6 +66,7 @@ export async function GET() {
         display_name: m.display_name,
         weight_lbs: m.weight_lbs,
         sex: m.sex,
+        burn_rate: m.burn_rate === null ? null : Number(m.burn_rate),
       });
       const cur = latestName.get(m.entrant_id);
       if (!cur || m.joined_at > cur.at) latestName.set(m.entrant_id, { name: m.display_name, at: m.joined_at });

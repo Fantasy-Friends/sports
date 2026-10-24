@@ -18,6 +18,7 @@ type SourceMember = {
   display_name: string;
   weight_lbs: number;
   sex: "male" | "female" | "other";
+  burn_rate: number | null;
   joined_at: string;
   left_at: string | null;
 };
@@ -83,7 +84,7 @@ export async function POST(
     // 2) Add source's members to target — reactivate if they exist and had left.
     const { data: sourceMembers } = await supabaseAdmin
       .from("drink_session_members")
-      .select("entrant_id, display_name, weight_lbs, sex, joined_at, left_at")
+      .select("entrant_id, display_name, weight_lbs, sex, burn_rate, joined_at, left_at")
       .eq("session_id", source.session_id);
 
     if (sourceMembers && sourceMembers.length > 0) {
@@ -106,6 +107,7 @@ export async function POST(
               display_name: m.display_name,
               weight_lbs: m.weight_lbs,
               sex: m.sex,
+              burn_rate: m.burn_rate ?? null,
               joined_at: m.joined_at,
             });
           if (error) throw new Error(error.message);
