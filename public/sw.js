@@ -1,4 +1,4 @@
-// Service worker for Fantasy Friends.
+// Service worker for Pick'em Playground.
 //
 // Job #1: receive web push messages and show them as notifications.
 // Job #2: when a notification is tapped, focus the app (or open it) at the
@@ -26,7 +26,7 @@ self.addEventListener("push", (event) => {
     data = { body: event.data ? event.data.text() : "" };
   }
 
-  const title = data.title || "Fantasy Friends";
+  const title = data.title || "Pick'em Playground";
   const options = {
     body: data.body || "",
     icon: "/icons/icon-192.png",
