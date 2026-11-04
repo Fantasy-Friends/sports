@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getErrorMessage } from "@/lib/error";
 import AppShell from "@/components/AppShell";
+import { PushSettingsCard } from "@/components/PushSetup";
 
 type ChannelPrefs = Record<string, boolean>;
 
@@ -26,6 +27,18 @@ const DEFAULT_SMS: ChannelPrefs = {
   hot_seat_declared: false,
   hot_seat_veto: true,
   season_digest: false,
+};
+
+// Push defaults ON for everything: enabling push on a device is the opt-in.
+const DEFAULT_PUSH: ChannelPrefs = {
+  draft_opens: true,
+  draft_turn: true,
+  turn_timer_warn: true,
+  event_lock: true,
+  event_final: true,
+  hot_seat_declared: true,
+  hot_seat_veto: true,
+  season_digest: true,
 };
 
 const KIND_ORDER: Array<keyof typeof DEFAULT_EMAIL> = [
@@ -55,6 +68,7 @@ export default function PreferencesPage() {
   const [phone, setPhone] = useState("");
   const [emailPrefs, setEmailPrefs] = useState<ChannelPrefs>(DEFAULT_EMAIL);
   const [smsPrefs, setSmsPrefs] = useState<ChannelPrefs>(DEFAULT_SMS);
+  const [pushPrefs, setPushPrefs] = useState<ChannelPrefs>(DEFAULT_PUSH);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +98,10 @@ export default function PreferencesPage() {
           ...(existing.sms as ChannelPrefs | undefined),
         };
         setSmsPrefs(smsFromPrefs);
+        setPushPrefs({
+          ...DEFAULT_PUSH,
+          ...(existing.push as ChannelPrefs | undefined),
+        });
       } catch (err) {
         if (!cancelled) setError(getErrorMessage(err, "Failed to load"));
       } finally {
@@ -101,7 +119,7 @@ export default function PreferencesPage() {
     setError(null);
     setSaved(false);
     try {
-      const prefs: Record<string, unknown> = { ...emailPrefs, sms: smsPrefs };
+      const prefs: Record<string, unknown> = { ...emailPrefs, sms: smsPrefs, push: pushPrefs };
       const res = await fetch("/api/preferences", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -126,8 +144,11 @@ export default function PreferencesPage() {
   return (
     <AppShell
       title="Notifications"
-      subtitle="Email is the default. Enable SMS for time-sensitive triggers you don&rsquo;t want to miss."
+      subtitle="Turn on push for this device, then pick which alerts you want on each channel."
     >
+      <div className="mb-4">
+        <PushSettingsCard />
+      </div>
       {loading ? (
         <div className="rounded-[1.5rem] border border-border/20 bg-surface/35 p-5 text-sm text-muted">
           Loading&hellip;
@@ -174,13 +195,14 @@ export default function PreferencesPage() {
             {KIND_ORDER.map((kind) => {
               const emailOn = emailPrefs[kind] ?? true;
               const smsOn = smsPrefs[kind] ?? false;
+              const pushOn = pushPrefs[kind] ?? true;
               return (
                 <li
                   key={`m-${kind}`}
                   className="rounded-xl border border-border/20 bg-surface/50 px-3 py-3"
                 >
                   <div className="text-sm font-medium">{KIND_LABEL[kind] ?? kind}</div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
                     <label className="flex items-center justify-between gap-2 rounded-lg border border-border/30 bg-surface/40 px-3 py-2">
                       <span className="text-muted">Email</span>
                       <input
@@ -205,6 +227,18 @@ export default function PreferencesPage() {
                         aria-label={`SMS notifications for ${KIND_LABEL[kind] ?? kind}`}
                       />
                     </label>
+                    <label className="flex items-center justify-between gap-2 rounded-lg border border-border/30 bg-surface/40 px-3 py-2">
+                      <span className="text-muted">Push</span>
+                      <input
+                        type="checkbox"
+                        checked={pushOn}
+                        onChange={(e) =>
+                          setPushPrefs((p) => ({ ...p, [kind]: e.target.checked }))
+                        }
+                        className="h-5 w-5"
+                        aria-label={`Push notifications for ${KIND_LABEL[kind] ?? kind}`}
+                      />
+                    </label>
                   </div>
                 </li>
               );
@@ -218,6 +252,7 @@ export default function PreferencesPage() {
                   <th className="px-2 py-2 font-medium">Notification</th>
                   <th className="px-2 py-2 text-center font-medium">Email</th>
                   <th className="px-2 py-2 text-center font-medium">SMS</th>
+                  <th className="px-2 py-2 text-center font-medium">Push</th>
                 </tr>
               </thead>
               <tbody>
@@ -242,6 +277,15 @@ export default function PreferencesPage() {
                         onChange={(e) => setSmsPrefs((p) => ({ ...p, [kind]: e.target.checked }))}
                         className="h-4 w-4"
                         aria-label={`SMS notifications for ${KIND_LABEL[kind] ?? kind}`}
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={pushPrefs[kind] ?? true}
+                        onChange={(e) => setPushPrefs((p) => ({ ...p, [kind]: e.target.checked }))}
+                        className="h-4 w-4"
+                        aria-label={`Push notifications for ${KIND_LABEL[kind] ?? kind}`}
                       />
                     </td>
                   </tr>

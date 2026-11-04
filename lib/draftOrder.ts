@@ -445,6 +445,22 @@ export async function syncDraftState(poolId: string, draftStarted: boolean) {
 }
 
 export async function advanceDraftState(poolId: string): Promise<DraftStateSummary> {
+  const summary = await advanceDraftStateCore(poolId);
+  // Ping whoever is now on the clock. Deduped per pick, never throws, and
+  // skipped overnight when the draft window is closed (they'll get it on the
+  // first poll after it reopens).
+  if (isDraftWindowOpen()) {
+    try {
+      const { notifyOnClock } = await import("@/lib/notifications/draftTurn");
+      await notifyOnClock(poolId, summary);
+    } catch (err) {
+      console.warn("draft_turn notification failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  return summary;
+}
+
+async function advanceDraftStateCore(poolId: string): Promise<DraftStateSummary> {
   const entrants = await loadOrderedEntrants(poolId);
   const entrantCount = entrants.length;
   const maxPicks = entrantCount * PICKS_PER_ENTRANT;

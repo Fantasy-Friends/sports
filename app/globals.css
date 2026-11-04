@@ -159,6 +159,10 @@
   /* AppShell top bar — dark Augusta-green gradient in both themes, but
      a touch lighter in dark mode so it doesn't dissolve into the page. */
   .appshell-topbar {
+    /* Installed iOS app uses a translucent status bar; pad so the clock and
+       battery sit over the green bar instead of on top of the buttons.
+       env() is 0 in a normal browser tab, so this is a no-op there. */
+    padding-top: env(safe-area-inset-top);
     background:
       radial-gradient(circle at 14% 0%, rgba(74, 222, 128, 0.16), transparent 30%),
       linear-gradient(180deg, #0b2a22 0%, #08201a 100%);

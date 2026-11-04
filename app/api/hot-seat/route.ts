@@ -11,6 +11,7 @@ import {
 } from "@/lib/notifications/send";
 import { renderHotSeatDeclared } from "@/lib/notifications/templates";
 import { smsHotSeatDeclared } from "@/lib/notifications/smsTemplates";
+import { pushHotSeatDeclared } from "@/lib/notifications/pushTemplates";
 
 export const revalidate = 0;
 
@@ -187,6 +188,7 @@ export async function POST(request: NextRequest) {
         kind: "hot_seat_declared",
         email,
         sms,
+        push: pushHotSeatDeclared(scheduled.display_name, declaration),
         excludeEntrantIds: [canonicalId],
       });
     } catch (notifErr) {

@@ -73,6 +73,7 @@ type NotificationSummary =
       recipients: number;
       email: { delivered: number; failed: number; skipped: number };
       sms: { delivered: number; failed: number; skipped: number };
+      push?: { delivered: number; failed: number; skipped: number };
     }
   | { error: string }
   | null;
@@ -93,6 +94,13 @@ function formatNotificationSummary(summary: NotificationSummary): string | null 
     parts.push(
       `SMS ${summary.sms.delivered}/${smsTotal}` +
         (summary.sms.failed > 0 ? ` (${summary.sms.failed} failed)` : ""),
+    );
+  }
+  const pushTotal = summary.push ? summary.push.delivered + summary.push.failed : 0;
+  if (summary.push && pushTotal > 0) {
+    parts.push(
+      `push ${summary.push.delivered}/${pushTotal}` +
+        (summary.push.failed > 0 ? ` (${summary.push.failed} failed)` : ""),
     );
   }
   return parts.join(" · ");

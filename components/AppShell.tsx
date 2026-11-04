@@ -1,5 +1,6 @@
 "use client";
 
+import { PushPrompt } from "@/components/PushSetup";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -531,7 +532,7 @@ function BottomTabBar({ pathname }: { pathname: string }) {
   return (
     <nav
       aria-label="Main navigation"
-      className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-white/10 bg-[#08201a]/95 backdrop-blur lg:hidden"
+      className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-white/10 bg-[#08201a]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
     >
       {BOTTOM_TABS.map((tab) => {
         const active = pathname === tab.href;
@@ -905,6 +906,7 @@ export default function AppShell({
           {!hideHeading && (
             <PageHeader title={title} subtitle={subtitle} presence={presence} />
           )}
+          <PushPrompt />
           {children}
         </main>
 

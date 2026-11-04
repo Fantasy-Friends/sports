@@ -19,6 +19,7 @@ type NotificationSummary =
       recipients: number;
       email: { delivered: number; failed: number; skipped: number };
       sms: { delivered: number; failed: number; skipped: number };
+      push?: { delivered: number; failed: number; skipped: number };
     }
   | { error: string }
   | null;
@@ -157,6 +158,10 @@ export default function AdminEventFinalizer() {
                 : ""}
               {result.notifications.sms.delivered + result.notifications.sms.failed > 0
                 ? ` · SMS ${result.notifications.sms.delivered}/${result.notifications.sms.delivered + result.notifications.sms.failed}${result.notifications.sms.failed > 0 ? ` (${result.notifications.sms.failed} failed)` : ""}`
+                : ""}
+              {result.notifications.push &&
+              result.notifications.push.delivered + result.notifications.push.failed > 0
+                ? ` · push ${result.notifications.push.delivered}/${result.notifications.push.delivered + result.notifications.push.failed}${result.notifications.push.failed > 0 ? ` (${result.notifications.push.failed} failed)` : ""}`
                 : ""}
             </div>
           ) : null}

@@ -11,6 +11,7 @@ import {
 } from "@/lib/notifications/send";
 import { renderEventFinal } from "@/lib/notifications/templates";
 import { smsEventFinal } from "@/lib/notifications/smsTemplates";
+import { pushEventFinal } from "@/lib/notifications/pushTemplates";
 
 export async function POST(request: NextRequest) {
   try {
@@ -165,11 +166,15 @@ export async function POST(request: NextRequest) {
       const sms = podium[0]
         ? smsEventFinal({ name: event.name }, podium[0].display_name, podium[0].awarded_points, getBaseUrl())
         : undefined;
+      const push = podium[0]
+        ? pushEventFinal({ name: event.name, slug: event.slug }, podium[0].display_name, podium[0].awarded_points)
+        : undefined;
       notifications = await sendNotificationToAllMembers({
         seasonId,
         kind: "event_final",
         email,
         sms,
+        push,
       });
     } catch (notifErr) {
       const message = notifErr instanceof Error ? notifErr.message : String(notifErr);
