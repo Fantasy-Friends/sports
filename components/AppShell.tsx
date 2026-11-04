@@ -1,6 +1,6 @@
 "use client";
 
-import { PushPrompt } from "@/components/PushSetup";
+import NotificationsLaunch from "@/components/NotificationsLaunch";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -906,7 +906,6 @@ export default function AppShell({
           {!hideHeading && (
             <PageHeader title={title} subtitle={subtitle} presence={presence} />
           )}
-          <PushPrompt />
           {children}
         </main>
 
@@ -929,6 +928,7 @@ export default function AppShell({
       </div>
 
       <BottomTabBar pathname={pathname} />
+      <NotificationsLaunch />
     </>
   );
 }

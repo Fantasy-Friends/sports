@@ -200,3 +200,34 @@
     }
   }
 }
+
+/* ── Notifications launch screen (components/NotificationsLaunch.tsx) ───── */
+.nl-root {
+  background:
+    radial-gradient(60rem 40rem at 78% 22%, rgba(250, 204, 21, 0.12), transparent 60%),
+    /* faint yard lines */
+    repeating-linear-gradient(90deg, transparent 0 11.9%, rgba(242, 238, 227, 0.035) 11.9% 12%),
+    linear-gradient(180deg, #0b2a22 0%, #06140f 70%);
+  animation: nl-fade 320ms ease-out both;
+}
+.nl-wallpaper {
+  background:
+    radial-gradient(22rem 18rem at 30% 12%, rgba(250, 204, 21, 0.55), transparent 70%),
+    radial-gradient(24rem 22rem at 80% 70%, rgba(74, 222, 128, 0.45), transparent 70%),
+    linear-gradient(170deg, #14503d 0%, #0b2a22 55%, #071a14 100%);
+}
+.nl-notif {
+  opacity: 0;
+  animation: nl-drop 520ms cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+@keyframes nl-drop {
+  from { opacity: 0; transform: translateY(-18px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes nl-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nl-root, .nl-notif { animation: none; opacity: 1; }
+}

@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { usePushNotifications, type PushStatus } from "@/lib/usePushNotifications";
 
@@ -118,107 +116,6 @@ export function PushSettingsCard() {
             {testSent ? <span className="text-xs text-info">Sent — check your lock screen.</span> : null}
           </>
         ) : null}
-      </div>
-    </div>
-  );
-}
-
-const DISMISS_KEY = "push-prompt-dismissed-at";
-const DISMISS_DAYS = 14;
-
-function wasDismissedRecently() {
-  try {
-    const raw = localStorage.getItem(DISMISS_KEY);
-    if (!raw) return false;
-    return Date.now() - Number(raw) < DISMISS_DAYS * 24 * 60 * 60 * 1000;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Compact banner shown at the top of every AppShell page until the device
- * has notifications on (or the banner is dismissed for 14 days).
- */
-export function PushPrompt() {
-  const pathname = usePathname();
-  const { status, busy, error, enable } = usePushNotifications();
-  // Only ever rendered client-side (AppShell mounts it after the session
-  // check), so reading localStorage in the initializer is hydration-safe.
-  const [dismissed, setDismissed] = useState(() =>
-    typeof window === "undefined" ? true : wasDismissedRecently(),
-  );
-  const [showSteps, setShowSteps] = useState(false);
-
-  if (dismissed || pathname === "/preferences") return null;
-  if (status !== "off" && status !== "ios-needs-install") return null;
-
-  function dismiss() {
-    try {
-      localStorage.setItem(DISMISS_KEY, String(Date.now()));
-    } catch {
-      // private mode — dismiss for this page view only
-    }
-    setDismissed(true);
-  }
-
-  return (
-    <div className="mb-4 rounded-[1.25rem] border border-[#4ade80]/30 bg-[#0b2a22] p-3 text-[#e9e3d1] sm:p-4">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">
-            {status === "ios-needs-install"
-              ? "Get Pick'em Playground on your Home Screen"
-              : "Know the second you're on the clock"}
-          </div>
-          <div className="mt-0.5 text-xs text-[#e9e3d1]/75">
-            {status === "ios-needs-install"
-              ? "Install it like an app to get lock-screen notifications. Takes 10 seconds."
-              : "Turn on notifications for draft turns, final results, and Hot Seat calls."}
-          </div>
-          {error ? <div className="mt-1 text-xs text-[#fca5a5]">{error}</div> : null}
-        </div>
-        <button
-          type="button"
-          onClick={dismiss}
-          aria-label="Dismiss"
-          className="-mr-1 -mt-1 rounded-md p-1 text-[#e9e3d1]/60 hover:text-[#e9e3d1]"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-            <line x1="6" y1="6" x2="18" y2="18" />
-            <line x1="18" y1="6" x2="6" y2="18" />
-          </svg>
-        </button>
-      </div>
-
-      {status === "ios-needs-install" && showSteps ? (
-        <div className="mt-3 rounded-xl bg-white/5 p-3 [&_*]:!text-[#e9e3d1]">
-          <IosInstallSteps />
-        </div>
-      ) : null}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {status === "off" ? (
-          <button
-            type="button"
-            onClick={() => void enable()}
-            disabled={busy}
-            className="rounded-lg bg-[#4ade80] px-3 py-1.5 text-xs font-bold text-[#08201a] disabled:opacity-50"
-          >
-            {busy ? "Turning on…" : "Turn on notifications"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowSteps((s) => !s)}
-            className="rounded-lg bg-[#4ade80] px-3 py-1.5 text-xs font-bold text-[#08201a]"
-          >
-            {showSteps ? "Hide steps" : "Show me how"}
-          </button>
-        )}
-        <Link href="/preferences" className="text-xs text-[#e9e3d1]/70 underline underline-offset-2">
-          Notification settings
-        </Link>
       </div>
     </div>
   );
