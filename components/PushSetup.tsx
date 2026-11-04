@@ -36,7 +36,7 @@ function IosInstallSteps() {
         <span className="font-medium">Add</span>.
       </li>
       <li>
-        Open <span className="font-medium">Fantasy Friends</span> from your Home Screen and come
+        Open <span className="font-medium">Pick&rsquo;em Playground</span> from your Home Screen and come
         back to this page to turn on notifications.
       </li>
     </ol>
@@ -49,7 +49,7 @@ const STATUS_LINE: Record<PushStatus, string> = {
   unsupported: "This browser doesn't support push notifications.",
   "not-configured": "Push isn't set up on the server yet (missing VAPID keys).",
   denied:
-    "Notifications are blocked for this app. Turn them back on in Settings → Notifications → Fantasy Friends.",
+    "Notifications are blocked for this app. Turn them back on in Settings → Notifications → Pick’em Playground.",
   off: "Get a lock-screen alert when you're on the clock, an event goes final, and more.",
   on: "This device will get notifications.",
 };
@@ -168,7 +168,7 @@ export function PushPrompt() {
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">
             {status === "ios-needs-install"
-              ? "Get Fantasy Friends on your Home Screen"
+              ? "Get Pick'em Playground on your Home Screen"
               : "Know the second you're on the clock"}
           </div>
           <div className="mt-0.5 text-xs text-[#e9e3d1]/75">

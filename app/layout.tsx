@@ -4,17 +4,17 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "The 2026 Ultimate Sports Decathlon",
   description: "Season-long fantasy sports decathlon across every major event of 2026.",
-  applicationName: "Fantasy Friends",
+  applicationName: "Pick'em Playground",
   // iOS home-screen install: full-screen launch, app name under the icon,
   // and a status bar that sits over the dark top bar.
   appleWebApp: {
     capable: true,
-    title: "Fantasy Friends",
+    title: "Pick'em Playground",
     statusBarStyle: "black-translucent",
   },
   icons: {
-    icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/icons/icon-192.png?v=2", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png?v=2", sizes: "180x180", type: "image/png" }],
   },
 };
 
