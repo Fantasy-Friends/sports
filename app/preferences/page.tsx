@@ -16,6 +16,8 @@ const DEFAULT_EMAIL: ChannelPrefs = {
   hot_seat_declared: true,
   hot_seat_veto: true,
   season_digest: true,
+  nfl_pick_reminder: true,
+  nfl_week_results: true,
 };
 
 const DEFAULT_SMS: ChannelPrefs = {
@@ -27,6 +29,8 @@ const DEFAULT_SMS: ChannelPrefs = {
   hot_seat_declared: false,
   hot_seat_veto: true,
   season_digest: false,
+  nfl_pick_reminder: false,
+  nfl_week_results: false,
 };
 
 // Push defaults ON for everything: enabling push on a device is the opt-in.
@@ -39,6 +43,8 @@ const DEFAULT_PUSH: ChannelPrefs = {
   hot_seat_declared: true,
   hot_seat_veto: true,
   season_digest: true,
+  nfl_pick_reminder: true,
+  nfl_week_results: true,
 };
 
 const KIND_ORDER: Array<keyof typeof DEFAULT_EMAIL> = [
@@ -50,6 +56,8 @@ const KIND_ORDER: Array<keyof typeof DEFAULT_EMAIL> = [
   "hot_seat_declared",
   "hot_seat_veto",
   "season_digest",
+  "nfl_pick_reminder",
+  "nfl_week_results",
 ];
 
 const KIND_LABEL: Record<string, string> = {
@@ -61,6 +69,8 @@ const KIND_LABEL: Record<string, string> = {
   hot_seat_declared: "Hot Seat declared",
   hot_seat_veto: "Hot Seat vetoes needed",
   season_digest: "Weekly season digest",
+  nfl_pick_reminder: "NFL Pick'em — 30 min before Thu & weekend kickoffs",
+  nfl_week_results: "NFL Pick'em — weekly winner after MNF",
 };
 
 export default function PreferencesPage() {

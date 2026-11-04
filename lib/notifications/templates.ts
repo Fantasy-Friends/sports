@@ -108,3 +108,27 @@ export function renderEventFinal(
   );
   return { subject, html, text: `${event.name} final. ${baseUrl}/season/2026` };
 }
+
+export function renderNflWeekResults(
+  week: number,
+  top: Array<{ display_name: string; total: number }>,
+  baseUrl: string,
+): RenderedEmail {
+  const leader = top[0];
+  const subject = leader
+    ? `NFL Pick'em Week ${week}: ${leader.display_name} wins with ${leader.total} pts`
+    : `NFL Pick'em Week ${week} is final`;
+  const list = top
+    .map((row, i) => `<li style="margin:4px 0;">${i + 1}. ${row.display_name} — ${row.total} pts</li>`)
+    .join("");
+  const html = wrap(
+    `<p style="color:#eaeaea;font-size:14px;line-height:1.5;">Week ${week} is in the books. Top of the board:</p>
+     <ol style="color:#eaeaea;font-size:14px;line-height:1.6;padding-left:20px;">${list}</ol>`,
+    {
+      title: `Pick'em Week ${week} — final`,
+      preheader: subject,
+      cta: { href: `${baseUrl}/pickem`, label: "See the full week" },
+    },
+  );
+  return { subject, html, text: `${subject}. ${baseUrl}/pickem` };
+}

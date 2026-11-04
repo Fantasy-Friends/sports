@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   // and a status bar that sits over the dark top bar.
   appleWebApp: {
     capable: true,
-    title: "Pick'em Playground",
+    title: "Pick'em",
     statusBarStyle: "black-translucent",
   },
   icons: {
