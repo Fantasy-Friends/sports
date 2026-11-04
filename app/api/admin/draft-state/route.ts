@@ -10,6 +10,7 @@ import {
 } from "@/lib/notifications/send";
 import { renderDraftOpens } from "@/lib/notifications/templates";
 import { smsDraftOpens } from "@/lib/notifications/smsTemplates";
+import { pushDraftOpens } from "@/lib/notifications/pushTemplates";
 import { getCurrentSeasonId } from "@/lib/events/resolve";
 
 export async function POST(req: Request) {
@@ -135,6 +136,7 @@ export async function POST(req: Request) {
               kind: "draft_opens",
               email,
               sms,
+              push: pushDraftOpens({ name: event.name }),
             });
           }
         }

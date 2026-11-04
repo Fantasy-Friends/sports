@@ -3,6 +3,8 @@ import { sendViaResend } from "./resend";
 import { sendViaTwilio, isE164 } from "./twilio";
 import type { RenderedEmail } from "./templates";
 import type { RenderedSms } from "./smsTemplates";
+import type { RenderedPush } from "./pushTemplates";
+import { sendPushToEntrant } from "./webPush";
 
 export type NotificationKind =
   | "draft_opens"
@@ -16,6 +18,7 @@ export type NotificationKind =
 
 type PrefsShape = Record<string, boolean> & {
   sms?: Record<string, boolean>;
+  push?: Record<string, boolean>;
 };
 
 type PrefsRow = {
@@ -25,13 +28,14 @@ type PrefsRow = {
 };
 
 export type SendChannelResult =
-  | { skipped: "opted_out" | "no_email" | "no_phone" }
+  | { skipped: "opted_out" | "no_email" | "no_phone" | "no_device" | "not_configured" }
   | { ok: true; id: string }
   | { ok: false; error: string };
 
 export type SendResult = {
   email: SendChannelResult;
   sms: SendChannelResult;
+  push: SendChannelResult;
 };
 
 export async function sendNotification(args: {
@@ -39,8 +43,9 @@ export async function sendNotification(args: {
   kind: NotificationKind;
   email?: RenderedEmail;
   sms?: RenderedSms;
+  push?: RenderedPush;
 }): Promise<SendResult> {
-  const { entrantId, kind, email, sms } = args;
+  const { entrantId, kind, email, sms, push } = args;
 
   const { data } = await supabaseAdmin
     .from("notification_preferences")
@@ -51,10 +56,14 @@ export async function sendNotification(args: {
   const prefs: PrefsShape = data?.prefs ?? {};
   const emailOptedIn = prefs[kind] ?? true;
   const smsOptedIn = prefs.sms?.[kind] ?? false;
+  // Push defaults ON: turning on notifications for a device is already an
+  // explicit opt-in. Per-kind toggles live in prefs.push.
+  const pushOptedIn = prefs.push?.[kind] ?? true;
 
   const result: SendResult = {
     email: { skipped: "opted_out" },
     sms: { skipped: "opted_out" },
+    push: { skipped: "opted_out" },
   };
 
   if (email) {
@@ -126,6 +135,30 @@ export async function sendNotification(args: {
     }
   }
 
+  if (push && pushOptedIn) {
+    try {
+      const r = await sendPushToEntrant(entrantId, push);
+      if ("skipped" in r) {
+        result.push = { skipped: r.skipped === "no_subscriptions" ? "no_device" : "not_configured" };
+      } else {
+        await supabaseAdmin.from("notification_log").insert({
+          entrant_id: entrantId,
+          channel: "push",
+          kind,
+          subject: push.title,
+          payload: { url: push.url, body: push.body, ...r },
+          error: r.ok ? null : r.error,
+        });
+        result.push = r.ok
+          ? { ok: true, id: `${r.delivered} device(s)` }
+          : { ok: false, error: r.error };
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.push = { ok: false, error: message };
+    }
+  }
+
   return result;
 }
 
@@ -133,6 +166,7 @@ export type BroadcastSummary = {
   recipients: number;
   email: { delivered: number; failed: number; skipped: number };
   sms: { delivered: number; failed: number; skipped: number };
+  push: { delivered: number; failed: number; skipped: number };
 };
 
 function tallyChannel(result: SendChannelResult, summary: BroadcastSummary["email"]) {
@@ -146,6 +180,7 @@ export async function sendNotificationToAllMembers(args: {
   kind: NotificationKind;
   email?: RenderedEmail;
   sms?: RenderedSms;
+  push?: RenderedPush;
   excludeEntrantIds?: string[];
 }): Promise<BroadcastSummary> {
   const { data } = await supabaseAdmin
@@ -160,6 +195,7 @@ export async function sendNotificationToAllMembers(args: {
     recipients: recipients.length,
     email: { delivered: 0, failed: 0, skipped: 0 },
     sms: { delivered: 0, failed: 0, skipped: 0 },
+    push: { delivered: 0, failed: 0, skipped: 0 },
   };
 
   const settled = await Promise.allSettled(
@@ -169,6 +205,7 @@ export async function sendNotificationToAllMembers(args: {
         kind: args.kind,
         email: args.email,
         sms: args.sms,
+        push: args.push,
       }),
     ),
   );
@@ -179,10 +216,12 @@ export async function sendNotificationToAllMembers(args: {
       // an unexpected bug — count it as a failure on both channels we attempted.
       if (args.email) summary.email.failed += 1;
       if (args.sms) summary.sms.failed += 1;
+      if (args.push) summary.push.failed += 1;
       continue;
     }
     if (args.email) tallyChannel(entry.value.email, summary.email);
     if (args.sms) tallyChannel(entry.value.sms, summary.sms);
+    if (args.push) tallyChannel(entry.value.push, summary.push);
   }
 
   return summary;

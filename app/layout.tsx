@@ -4,12 +4,25 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "The 2026 Ultimate Sports Decathlon",
   description: "Season-long fantasy sports decathlon across every major event of 2026.",
+  applicationName: "Fantasy Friends",
+  // iOS home-screen install: full-screen launch, app name under the icon,
+  // and a status bar that sits over the dark top bar.
+  appleWebApp: {
+    capable: true,
+    title: "Fantasy Friends",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  themeColor: "#0b2a22",
 };
 
 export default function RootLayout({
