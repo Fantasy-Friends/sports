@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
     name: "Pick'em Playground — 2026 Ultimate Sports Decathlon",
-    short_name: "Pick'em Playground",
+    short_name: "Pick'em",
     description: "Season-long fantasy sports decathlon across every major event of 2026.",
     start_url: "/",
     scope: "/",

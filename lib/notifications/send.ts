@@ -14,7 +14,9 @@ export type NotificationKind =
   | "event_final"
   | "hot_seat_declared"
   | "hot_seat_veto"
-  | "season_digest";
+  | "season_digest"
+  | "nfl_pick_reminder"
+  | "nfl_week_results";
 
 type PrefsShape = Record<string, boolean> & {
   sms?: Record<string, boolean>;

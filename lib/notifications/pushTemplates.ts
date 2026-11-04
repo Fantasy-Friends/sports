@@ -69,3 +69,43 @@ export function pushTest(name: string): RenderedPush {
     tag: "test",
   };
 }
+
+export function pushNflPickReminder(opts: {
+  week: number;
+  slot: "thursday" | "weekend";
+  slotLabel: string; // e.g. "TNF" or "Sunday's games"
+  unpicked: number;
+  matchup?: string; // e.g. "DAL @ PHI" when it's a single game
+}): RenderedPush {
+  const what =
+    opts.unpicked === 1 && opts.matchup
+      ? `You haven't picked ${opts.matchup} yet.`
+      : `You have ${opts.unpicked} game${opts.unpicked === 1 ? "" : "s"} unpicked.`;
+  return {
+    title: `⏰ ${opts.slotLabel} kicks off in 30 min`,
+    body: `${what} Picks lock at kickoff.`,
+    url: "/pickem",
+    tag: `nfl-remind-${opts.week}-${opts.slot}`,
+  };
+}
+
+export function pushNflWeekResults(
+  week: number,
+  top: Array<{ display_name: string; total: number }>,
+): RenderedPush {
+  const winners = top.filter((t) => t.total === top[0]?.total);
+  const title =
+    winners.length > 1
+      ? `🏈 Week ${week}: ${winners.map((w) => w.display_name).join(" & ")} tie at ${winners[0].total}`
+      : `🏈 Week ${week} winner: ${top[0]?.display_name ?? "—"} (${top[0]?.total ?? 0} pts)`;
+  const rest = top
+    .slice(winners.length, 3)
+    .map((t, i) => `${winners.length + i + 1}. ${t.display_name} ${t.total}`)
+    .join(" · ");
+  return {
+    title,
+    body: rest ? rest : "Tap for the full week.",
+    url: "/pickem",
+    tag: `nfl-results-${week}`,
+  };
+}
