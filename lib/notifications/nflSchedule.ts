@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { currentNflSeason, fetchNflWeek, upcomingNflWeek, type NflGame } from "@/lib/nfl";
-import { scoreWeek, seasonDisplayNames, type PickRow } from "@/lib/nflPickem";
+import { fetchSeasonPicks, scoreWeek, seasonDisplayNames } from "@/lib/nflPickem";
 import { getBaseUrl, sendNotification } from "./send";
 import { renderNflWeekResults } from "./templates";
 import { pushNflPickReminder, pushNflWeekResults } from "./pushTemplates";
@@ -93,15 +93,6 @@ async function claim(key: string, dryRun: boolean) {
   return !error; // duplicate key → someone already sent it
 }
 
-async function seasonPicks(season: number): Promise<PickRow[]> {
-  const { data, error } = await supabaseAdmin
-    .from("nfl_pickem_picks")
-    .select("season, week, entrant_id, game_id, picked_team, confidence, is_bet, bet_decimal, parlay_group")
-    .eq("season", season);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as PickRow[];
-}
-
 export type NflRunReport = {
   week: number;
   reminders: Array<{ slot: string; recipients: string[]; sent: boolean }>;
@@ -118,7 +109,7 @@ export async function runNflNotifications(opts: { now?: Date; dryRun?: boolean }
 
   const [schedule, picks, names] = await Promise.all([
     fetchNflWeek(week, season),
-    seasonPicks(season),
+    fetchSeasonPicks(season),
     seasonDisplayNames(),
   ]);
   const participants = [...new Set(picks.map((p) => p.entrant_id))];

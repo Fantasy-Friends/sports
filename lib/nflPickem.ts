@@ -15,6 +15,34 @@ export type PickRow = {
   parlay_group: number | null;
 };
 
+// ─── Season picks ───────────────────────────────────────────────────────────
+// PostgREST caps a single response at 1000 rows, and a season of picks is
+// bigger than that (7 players × ~14 games × 18 weeks). Page through with a
+// stable order so no rows are silently dropped off the end.
+
+const PICK_COLUMNS =
+  "season, week, entrant_id, game_id, picked_team, confidence, is_bet, bet_decimal, parlay_group";
+const PICKS_PAGE_SIZE = 1000;
+
+export async function fetchSeasonPicks(season: number): Promise<PickRow[]> {
+  const out: PickRow[] = [];
+  for (let from = 0; ; from += PICKS_PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from("nfl_pickem_picks")
+      .select(PICK_COLUMNS)
+      .eq("season", season)
+      .order("week", { ascending: true })
+      .order("entrant_id", { ascending: true })
+      .order("game_id", { ascending: true })
+      .range(from, from + PICKS_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as PickRow[];
+    out.push(...page);
+    if (page.length < PICKS_PAGE_SIZE) break;
+  }
+  return out;
+}
+
 // ─── Featured scoreboard week ───────────────────────────────────────────────
 // The landing scoreboard keeps showing the just-played week's results through
 // Tuesday, then flips to the new week on WEDNESDAY (Central Time — the pool's

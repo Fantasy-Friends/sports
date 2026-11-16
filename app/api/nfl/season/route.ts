@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getAuthenticatedEntrant } from "@/lib/draftAuth";
 import { getErrorMessage } from "@/lib/error";
 import { currentNflSeason, fetchNflWeek } from "@/lib/nfl";
 import {
   featuredScoreboardWeek,
+  fetchSeasonPicks,
   pickOutcome,
   scoreWeek,
   seasonDisplayNames,
@@ -34,18 +34,12 @@ export async function GET() {
     if (!auth) return NextResponse.json({ error: "auth required" }, { status: 401 });
 
     const season = currentNflSeason();
-    const [featured, names, { data: rows }] = await Promise.all([
+    const [featured, names, allPicks] = await Promise.all([
       featuredScoreboardWeek(),
       seasonDisplayNames(),
-      supabaseAdmin
-        .from("nfl_pickem_picks")
-        .select(
-          "season, week, entrant_id, game_id, picked_team, confidence, is_bet, bet_decimal, parlay_group",
-        )
-        .eq("season", season),
+      fetchSeasonPicks(season),
     ]);
 
-    const allPicks = (rows ?? []) as PickRow[];
     const picksByWeek = new Map<number, PickRow[]>();
     for (const p of allPicks) {
       const arr = picksByWeek.get(p.week) ?? [];
